@@ -20,8 +20,8 @@ API плагинов: `murglar-gradle-plugin-core/android` **9.0** (jitpack), Ko
 ## Сборка
 
 ```bash
-./gradlew :murloc-core:build      # jar: murloc-core/build/libs/murglar-plugin-local-9.1.jar
-./gradlew :murloc-android:build   # apk: murloc-android/build/outputs/apk/release/murglar-plugin-local-9.1.apk
+./gradlew :murloc-core:build      # jar: murloc-core/build/libs/murglar-plugin-local-9.2.jar
+./gradlew :murloc-android:build   # apk: murloc-android/build/outputs/apk/release/murglar-plugin-local-9.2.apk
 ./gradlew :murloc-cli:build       # тестовый CLI-модуль
 ```
 
@@ -30,12 +30,12 @@ Android SDK и keystore (см. ниже).
 
 ## Установка
 
-**Desktop**: положить `murglar-plugin-local-9.1.jar` в папку плагинов Murglar Desktop
+**Desktop**: положить `murglar-plugin-local-9.2.jar` в папку плагинов Murglar Desktop
 и перезапустить приложение. Папка плагинов — подкаталог `plugins` рядом с исполняемым файлом
 Murglar (в зависимости от того, куда установлен плеер; например, при установке в `D:\murglar`
 путь будет `D:\murglar\plugins`).
 
-**Android**: установить `murglar-plugin-local-9.1.apk` на устройство — Murglar подхватит её
+**Android**: установить `murglar-plugin-local-9.2.apk` на устройство — Murglar подхватит её
 как плагин (как в документации murglar-plugins).
 
 ## Настройки плагина

@@ -26,11 +26,11 @@
 ```bash
 # Desktop (jar) — JDK 17 в JAVA_HOME
 ./gradlew :murloc-core:build
-#   → murloc-core/build/libs/murglar-plugin-local-9.1.jar
+#   → murloc-core/build/libs/murglar-plugin-local-9.2.jar
 
 # Android (apk) — нужен SDK (sdk.dir в local.properties) и keystore
 ./gradlew :murloc-android:clean :murloc-android:build
-#   → murloc-android/build/outputs/apk/release/murglar-plugin-local-9.1.apk
+#   → murloc-android/build/outputs/apk/release/murglar-plugin-local-9.2.apk
 ```
 
 Полезное:
@@ -48,7 +48,7 @@
 
 - **Desktop**: jar → папка плагинов Murglar (подкаталог `plugins` рядом с murglar.exe,
   например `D:\murglar\plugins`), перезапуск плеера.
-- **Android**: `adb install murglar-plugin-local-9.1.apk` (или передать файл на устройство
+- **Android**: `adb install murglar-plugin-local-9.2.apk` (или передать файл на устройство
   и установить) — Murglar находит apk по `NoOpDiscoverableReceiver`.
 
 ## Тестирование без хоста (murloc-cli)
