@@ -12,6 +12,14 @@ interface LocalMessages : Messages {
     val playlistsFolder: String
     val playlistsFolderMessage: String
     val openPlaylistsFolder: String
+    val saveDirAsPlaylist: String
+    val addTrackToPlaylist: String
+    val deletePlaylist: String
+    val targetPlaylist: String
+    val createPlaylist: String
+    val newPlaylist: String
+    val playlistSaved: String
+    val playlistCreated: String
     val useStreamServer: String
     val useStreamServerSummary: String
     val loginNotRequired: String

@@ -14,6 +14,7 @@ import com.badmanners.murglar.lib.core.network.NetworkMiddleware
 import com.badmanners.murglar.lib.core.notification.NotificationMiddleware
 import com.badmanners.murglar.lib.core.preference.ActionPreference
 import com.badmanners.murglar.lib.core.preference.EditPreference
+import com.badmanners.murglar.lib.core.preference.ListPreference
 import com.badmanners.murglar.lib.core.preference.Preference
 import com.badmanners.murglar.lib.core.preference.PreferenceMiddleware
 import com.badmanners.murglar.lib.core.preference.SwitchPreference
@@ -70,6 +71,7 @@ class LocalMurglar(
 
         const val PREF_MUSIC_DIR = "music_dir"
         const val PREF_PLAYLISTS_DIR = "playlists_dir"
+        const val PREF_TARGET_PLAYLIST = "target_playlist"
         const val PREF_STREAM_SERVER = "stream_server"
 
         private val MESSAGES = mapOf(
@@ -133,6 +135,28 @@ class LocalMurglar(
                         summary = null,
                         action = ::openPlaylistsFolder,
                         needConfirmation = false
+                    )
+                )
+                add(
+                    ListPreference(
+                        id = "target_playlist",
+                        title = messages.targetPlaylist,
+                        message = null,
+                        nameGetter = null,
+                        valueGetter = { preferences.getString(PREF_TARGET_PLAYLIST, "") },
+                        valueSetter = { preferences.setString(PREF_TARGET_PLAYLIST, it.ifBlank { null }) },
+                        names = playlistLibrary.playlistFileNames()?.map { it.first } ?: emptyList(),
+                        values = playlistLibrary.playlistFileNames()?.map { it.second } ?: emptyList()
+                    )
+                )
+                add(
+                    ActionPreference(
+                        id = "create_playlist",
+                        title = messages.createPlaylist,
+                        summary = null,
+                        action = { createPlaylist() },
+                        needConfirmation = false,
+                        refreshAllAfterInvoke = true
                     )
                 )
             }
@@ -222,6 +246,126 @@ class LocalMurglar(
     fun listPlaylists(): List<LocalPlaylist> =
         if (isAndroidPlatform) emptyList() else playlistLibrary.listPlaylists() ?: emptyList()
 
+    /**
+     * Saves all audio files directly in the directory [dir] (absolute path) as a new `.m3u`
+     * playlist named after the directory (Desktop only, custom node action).
+     *
+     * @return true on success
+     */
+    fun saveDirectoryAsPlaylist(dir: String): Boolean {
+        if (isAndroidPlatform)
+            return false
+
+        val audio = scanner.listAudio(dir)
+        if (audio.isEmpty()) {
+            logger.w(TAG, "No audio files in '$dir' - playlist not created!")
+            return false
+        }
+
+        val name = runCatching { Path.of(dir).fileName?.toString() }.getOrNull() ?: dir
+        val file = playlistLibrary.writePlaylist(name, audio)
+        if (file != null)
+            notifications.shortNotify("${messages.playlistSaved} ${file.fileName}")
+
+        return file != null
+    }
+
+    /**
+     * Appends the track [trackId] to the target playlist from [PREF_TARGET_PLAYLIST]
+     * (Desktop only, custom node action). Does nothing (except a warning) if the target
+     * playlist is not selected or doesn't exist.
+     *
+     * @return true, if the playlist was changed
+     */
+    fun addTrackToTargetPlaylist(trackId: String): Boolean {
+        if (isAndroidPlatform)
+            return false
+
+        val target = preferences.getString(PREF_TARGET_PLAYLIST, "")
+        if (target.isEmpty() || !playlistLibrary.exists(target)) {
+            logger.w(TAG, "Target playlist is not selected or doesn't exist - track '$trackId' not added!")
+            return false
+        }
+
+        val audio = scanner.audioFile(trackId)
+        if (audio == null) {
+            logger.w(TAG, "Can't find track '$trackId' - not added to '$target'!")
+            return false
+        }
+
+        val changed = playlistLibrary.appendTracks(target, listOf(audio))
+        if (!changed)
+            logger.i(TAG, "Track '$trackId' is already in '$target', skipped.")
+
+        return changed
+    }
+
+    /**
+     * Deletes the playlist file [fileName] from the playlists dir, resetting
+     * [PREF_TARGET_PLAYLIST] if it pointed to it (Desktop only, custom node action).
+     */
+    fun deletePlaylist(fileName: String): Boolean {
+        if (isAndroidPlatform)
+            return false
+
+        val deleted = playlistLibrary.deletePlaylist(fileName)
+        if (deleted && preferences.getString(PREF_TARGET_PLAYLIST, "") == fileName)
+            preferences.setString(PREF_TARGET_PLAYLIST, null)
+
+        return deleted
+    }
+
+    /**
+     * Creates an empty `Новый плейлист (yyyy-MM-dd HH-mm).m3u` and selects it as the target
+     * playlist (Desktop only, ActionPreference from plugin settings).
+     *
+     * @return file name of the created playlist, or null on failure
+     */
+    fun createPlaylist(): String? {
+        if (isAndroidPlatform)
+            return null
+
+        val stamp = org.threeten.bp.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH-mm")
+            .format(org.threeten.bp.LocalDateTime.now())
+        val file = playlistLibrary.writePlaylist("${messages.newPlaylist} ($stamp)", emptyList())
+            ?: return null
+
+        val fileName = file.fileName.toString()
+        preferences.setString(PREF_TARGET_PLAYLIST, fileName)
+        notifications.shortNotify("${messages.playlistCreated} $fileName")
+        return fileName
+    }
+
+    /**
+     * Opens the playlists folder in the system file manager (Desktop only, custom node action).
+     */
+    fun openPlaylistsDir(): Boolean {
+        if (isAndroidPlatform)
+            return false
+
+        return try {
+            val desktop = java.awt.Desktop.getDesktop()
+            if (!java.awt.Desktop.isDesktopSupported() || !desktop.isSupported(java.awt.Desktop.Action.OPEN)) {
+                logger.w(TAG, "Opening folders in a file manager is not supported on this host!")
+                return false
+            }
+
+            val raw = preferences.getString(PREF_PLAYLISTS_DIR, defaultPlaylistsDir())
+            val dir = try {
+                Path.of(raw).takeIf { Files.isDirectory(it) } ?: Files.createDirectories(Path.of(raw))
+            } catch (e: Exception) {
+                logger.w(TAG, "Can't create playlists folder '$raw'!", e)
+                return false
+            }
+
+            desktop.open(dir.toFile())
+            true
+        } catch (e: Exception) {
+            logger.w(TAG, "Can't open playlists folder!", e)
+            false
+        }
+    }
+
     private fun defaultMusicDir(): String =
         if (isAndroidPlatform) "" else "${System.getProperty("user.home")}/Music"
 
@@ -270,28 +414,7 @@ class LocalMurglar(
      * Opens the playlists folder in the system file manager (Desktop only).
      */
     private fun openPlaylistsFolder() {
-        if (isAndroidPlatform)
-            return
-
-        try {
-            val desktop = java.awt.Desktop.getDesktop()
-            if (!java.awt.Desktop.isDesktopSupported() || !desktop.isSupported(java.awt.Desktop.Action.OPEN)) {
-                logger.w(TAG, "Opening folders in a file manager is not supported on this host!")
-                return
-            }
-
-            val raw = preferences.getString(PREF_PLAYLISTS_DIR, defaultPlaylistsDir())
-            val dir = try {
-                Path.of(raw).takeIf { Files.isDirectory(it) } ?: Files.createDirectories(Path.of(raw))
-            } catch (e: Exception) {
-                logger.w(TAG, "Can't create playlists folder '$raw'!", e)
-                return
-            }
-
-            desktop.open(dir.toFile())
-        } catch (e: Exception) {
-            logger.w(TAG, "Can't open playlists folder!", e)
-        }
+        openPlaylistsDir()
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.badmanners.murglar.lib.local.node
 
+import com.badmanners.murglar.lib.core.model.event.NamedAction
 import com.badmanners.murglar.lib.core.model.node.Node
 import com.badmanners.murglar.lib.core.model.node.NodeParameters.PagingType.NON_PAGEABLE
 import com.badmanners.murglar.lib.core.model.node.NodeType.NODE
@@ -8,14 +9,20 @@ import com.badmanners.murglar.lib.core.model.node.NodeType.TRACK
 import com.badmanners.murglar.lib.core.model.node.Path
 import com.badmanners.murglar.lib.core.node.BaseNodeResolver
 import com.badmanners.murglar.lib.core.node.Directory
+import com.badmanners.murglar.lib.core.node.EventConfig
 import com.badmanners.murglar.lib.core.node.GenericConfiguration
 import com.badmanners.murglar.lib.core.node.MappedEntity
 import com.badmanners.murglar.lib.core.node.Root
 import com.badmanners.murglar.lib.core.node.Track
+import com.badmanners.murglar.lib.core.node.UnmappedEntity
 import com.badmanners.murglar.lib.core.utils.MurglarLibUtils.urlDecode
 import com.badmanners.murglar.lib.core.utils.MurglarLibUtils.urlEncode
 import com.badmanners.murglar.lib.local.LocalMurglar
 import com.badmanners.murglar.lib.local.localization.LocalMessages
+import com.badmanners.murglar.lib.local.model.event.AddTrackToPlaylist
+import com.badmanners.murglar.lib.local.model.event.DeletePlaylist
+import com.badmanners.murglar.lib.local.model.event.OpenPlaylistsFolder
+import com.badmanners.murglar.lib.local.model.event.SaveDirectoryAsPlaylist
 import com.badmanners.murglar.lib.local.model.playlist.LocalPlaylist
 import com.badmanners.murglar.lib.local.model.track.LocalTrack
 import com.badmanners.murglar.lib.local.model.track.LocalTrackFactory
@@ -65,6 +72,12 @@ class LocalNodeResolver(
                 hasSubdirectories = false,
                 type = PLAYLIST,
                 contentNodeType = TRACK,
+                events = listOf(
+                    EventConfig(DeletePlaylist::class) { event, _ ->
+                        if (!murglar.isAndroidPlatform)
+                            murglar.deletePlaylist(event.playlistId)
+                    }
+                ),
                 nodeSupplier = ::getPlaylist,
                 nodeContentSupplier = ::getPlaylistTracks
             )
@@ -82,10 +95,66 @@ class LocalNodeResolver(
         add(
             Track(
                 pattern = "*/track-<trackId>",
+                events = listOf(
+                    EventConfig(AddTrackToPlaylist::class) { event, _ ->
+                        if (!murglar.isAndroidPlatform)
+                            murglar.addTrackToTargetPlaylist(event.trackId)
+                    }
+                ),
                 nodeSupplier = ::getTrack
             )
         )
+        // Directory nodes have NODE type and their Directory configuration has no `events`,
+        // so custom actions for them are declared through UnmappedEntity(type = NODE).
+        add(
+            UnmappedEntity(
+                type = NODE,
+                events = listOf(
+                    EventConfig(SaveDirectoryAsPlaylist::class) { event, _ ->
+                        if (!murglar.isAndroidPlatform)
+                            murglar.saveDirectoryAsPlaylist(event.dir)
+                    },
+                    EventConfig(OpenPlaylistsFolder::class) { _, _ ->
+                        if (!murglar.isAndroidPlatform)
+                            murglar.openPlaylistsDir()
+                    }
+                )
+            )
+        )
     }
+
+    /**
+     * Custom node menu actions (Desktop only).
+     *
+     * The host shows them from the node menu and calls [handleEvent] with the action
+     * from [NamedAction.action] when the user clicks one.
+     */
+    override fun getNodeCustomActions(node: Node): List<NamedAction> {
+        if (murglar.isAndroidPlatform)
+            return emptyList()
+
+        val lastSegment = node.nodePath.last
+        return when {
+            node.nodeType == PLAYLIST ->
+                listOf(NamedAction(messages.deletePlaylist, DeletePlaylist(playlistFileName(node))))
+
+            node.nodeType == TRACK ->
+                listOf(NamedAction(messages.addTrackToPlaylist, AddTrackToPlaylist(node.nodeId)))
+
+            node.nodePath.size == 2 && lastSegment == PLAYLISTS_ROOT_ID ->
+                listOf(NamedAction(messages.openPlaylistsFolder, OpenPlaylistsFolder))
+
+            node.nodeType == NODE && lastSegment.startsWith("dir-") -> {
+                val dir = lastSegment.removePrefix("dir-").urlDecode()
+                listOf(NamedAction(messages.saveDirAsPlaylist, SaveDirectoryAsPlaylist(dir)))
+            }
+
+            else -> emptyList()
+        }
+    }
+
+    private fun playlistFileName(node: Node): String =
+        runCatching { FsPath.of(node.nodeId).fileName?.toString() }.getOrNull() ?: node.nodeId
 
 
     private fun getMusicContent(parentPath: Path, page: Int?, params: Map<String, String>): List<Node> =
@@ -181,4 +250,9 @@ class LocalNodeResolver(
 
     private fun playlistNodePath(parentPath: Path, playlist: LocalPlaylist): Path =
         parentPath.child("playlist-${playlist.id.urlEncode()}")
+
+
+    private companion object {
+        const val PLAYLISTS_ROOT_ID = "playlists"
+    }
 }

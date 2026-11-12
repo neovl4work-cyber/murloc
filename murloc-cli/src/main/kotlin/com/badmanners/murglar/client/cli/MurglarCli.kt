@@ -12,6 +12,9 @@ import com.badmanners.murglar.lib.core.network.NetworkRequest
 import com.badmanners.murglar.lib.core.network.ResponseConverters.asByteArray
 import com.badmanners.murglar.lib.core.service.Murglar
 import com.badmanners.murglar.lib.local.LocalMurglar
+import com.badmanners.murglar.lib.local.model.event.AddTrackToPlaylist
+import com.badmanners.murglar.lib.local.model.event.DeletePlaylist
+import com.badmanners.murglar.lib.local.model.event.SaveDirectoryAsPlaylist
 import com.badmanners.murglar.lib.local.model.track.LocalTrack
 import java.io.File
 
@@ -106,14 +109,77 @@ object MurglarCli {
         // 3) Range request against the stream server (seek simulation).
         checkRangeRequest(serverSource.url!!)
 
-        // 4) Playlists: 'My Music' must contain a 'Playlists' dir with .m3u playlists of tracks.
+        // 4) Playlists: root menu items + .m3u content.
         checkPlaylists(murglar, nodeResolver)
+
+        // 5) Custom node actions: save dir as playlist, create/add/delete playlist.
+        checkCustomActions(murglar, nodeResolver)
 
         println()
         println("ALL CHECKS PASSED")
 
         // The embedded stream server runs non-daemon threads - force JVM shutdown for CLI usage.
         System.exit(0)
+    }
+
+    private suspend fun checkCustomActions(murglar: LocalMurglar, nodeResolver: com.badmanners.murglar.lib.core.node.NodeResolver) {
+        val myMusic = nodeResolver.getRootNodes(true).first { it.nodePath.last == "myMusic" }
+        val rootContent = nodeResolver.getNodeContent(myMusic.nodePath, page = null)
+
+        // a) 'Save as playlist' on a directory node.
+        val dirNode = rootContent.first {
+            it.nodePath.last.startsWith("dir-") && it.nodeName == "Artist One - Album Name"
+        }
+        val dirActions = nodeResolver.getNodeCustomActions(dirNode)
+        check(dirActions.size == 1 && dirActions.first().action is SaveDirectoryAsPlaylist) {
+            "Expected 1 save-dir action, got $dirActions!"
+        }
+        nodeResolver.handleEvent(dirActions.first().action, dirNode, null)
+        val savedName = "Artist One - Album Name.m3u"
+        check(murglar.playlistLibrary.exists(savedName)) { "'$savedName' was not created!" }
+        val savedPlaylist = murglar.listPlaylists().firstOrNull { it.title == "Artist One - Album Name" }
+            ?: error("Saved playlist not in the library!")
+        check(murglar.playlistLibrary.playlistTracks(savedPlaylist.id).size == 1) { "Saved playlist must contain 1 track!" }
+        println("Save dir as playlist: OK ('$savedName', 1 track)")
+
+        // b) 'Create playlist' (ActionPreference analogue) creates an empty playlist and selects it as target.
+        val createdName = murglar.createPlaylist()
+        check(createdName != null && murglar.playlistLibrary.exists(createdName)) { "createPlaylist() failed!" }
+        check(preferences.getString(LocalMurglar.PREF_TARGET_PLAYLIST, "") == createdName) {
+            "Target playlist was not set to the created one!"
+        }
+        println("Create playlist: OK ('$createdName')")
+
+        // c) 'Add to playlist' on a track node appends without duplicates.
+        val trackNode = rootContent.first { it.nodeType == com.badmanners.murglar.lib.core.model.node.NodeType.TRACK }
+        val trackActions = nodeResolver.getNodeCustomActions(trackNode)
+        check(trackActions.size == 1 && trackActions.first().action is AddTrackToPlaylist) {
+            "Expected 1 add-track action, got $trackActions!"
+        }
+        nodeResolver.handleEvent(trackActions.first().action, trackNode, null)
+        val created = murglar.listPlaylists().firstOrNull { it.title == createdName!!.removeSuffix(".m3u") }
+            ?: error("Created playlist not in the library!")
+        val countAfterFirst = murglar.playlistLibrary.playlistTracks(created.id).size
+        check(countAfterFirst == 1) { "Track was not added to the target playlist!" }
+        nodeResolver.handleEvent(trackActions.first().action, trackNode, null)
+        val countAfterSecond = murglar.playlistLibrary.playlistTracks(created.id).size
+        check(countAfterSecond == 1) { "Duplicate track was added!" }
+        println("Add track to playlist: OK (no duplicates)")
+
+        // d) 'Delete playlist' on a playlist node removes the file and resets the target pref.
+        val playlistsRoot = nodeResolver.getRootNodes(true).first { it.nodePath.last == "playlists" }
+        val playlistNode = nodeResolver.getNodeContent(playlistsRoot.nodePath, page = null)
+            .first { it.nodeName == created.title }
+        val playlistActions = nodeResolver.getNodeCustomActions(playlistNode)
+        check(playlistActions.size == 1 && playlistActions.first().action is DeletePlaylist) {
+            "Expected 1 delete action, got $playlistActions!"
+        }
+        nodeResolver.handleEvent(playlistActions.first().action, playlistNode, null)
+        check(!murglar.playlistLibrary.exists(createdName)) { "Playlist file was not deleted!" }
+        check(preferences.getString(LocalMurglar.PREF_TARGET_PLAYLIST, "").isEmpty()) {
+            "Target playlist pref was not reset!"
+        }
+        println("Delete playlist: OK")
     }
 
     private suspend fun checkPlaylists(murglar: LocalMurglar, nodeResolver: com.badmanners.murglar.lib.core.node.NodeResolver) {
