@@ -20,11 +20,21 @@ data class SaveDirectoryAsPlaylist(
 ) : CustomAction
 
 /**
- * Appends the track [trackId] (absolute file path) to the target playlist from plugin preferences.
+ * Appends the track [trackId] (absolute file path) to the playlist [playlistFileName].
  */
 @Model
 data class AddTrackToPlaylist(
-    val trackId: String
+    val trackId: String,
+    val playlistFileName: String
+) : CustomAction
+
+/**
+ * Removes the track [trackId] (absolute file path) from the playlist [playlistFileName].
+ */
+@Model
+data class RemoveTrackFromPlaylist(
+    val trackId: String,
+    val playlistFileName: String
 ) : CustomAction
 
 /**
@@ -34,6 +44,13 @@ data class AddTrackToPlaylist(
 data class DeletePlaylist(
     val playlistId: String
 ) : CustomAction
+
+/**
+ * Creates an empty `Новый плейлист (yyyy-MM-dd HH-mm).m3u` in the playlists dir.
+ */
+object CreateEmptyPlaylist : CustomAction {
+    private fun readResolve(): Any = CreateEmptyPlaylist
+}
 
 /**
  * Opens the playlists folder in the system file manager.

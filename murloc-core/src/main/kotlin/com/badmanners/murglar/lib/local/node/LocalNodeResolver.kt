@@ -20,8 +20,10 @@ import com.badmanners.murglar.lib.core.utils.MurglarLibUtils.urlEncode
 import com.badmanners.murglar.lib.local.LocalMurglar
 import com.badmanners.murglar.lib.local.localization.LocalMessages
 import com.badmanners.murglar.lib.local.model.event.AddTrackToPlaylist
+import com.badmanners.murglar.lib.local.model.event.CreateEmptyPlaylist
 import com.badmanners.murglar.lib.local.model.event.DeletePlaylist
 import com.badmanners.murglar.lib.local.model.event.OpenPlaylistsFolder
+import com.badmanners.murglar.lib.local.model.event.RemoveTrackFromPlaylist
 import com.badmanners.murglar.lib.local.model.event.SaveDirectoryAsPlaylist
 import com.badmanners.murglar.lib.local.model.playlist.LocalPlaylist
 import com.badmanners.murglar.lib.local.model.track.LocalTrack
@@ -98,7 +100,11 @@ class LocalNodeResolver(
                 events = listOf(
                     EventConfig(AddTrackToPlaylist::class) { event, _ ->
                         if (!murglar.isAndroidPlatform)
-                            murglar.addTrackToTargetPlaylist(event.trackId)
+                            murglar.addTrackToPlaylist(event.trackId, event.playlistFileName)
+                    },
+                    EventConfig(RemoveTrackFromPlaylist::class) { event, _ ->
+                        if (!murglar.isAndroidPlatform)
+                            murglar.removeTrackFromPlaylist(event.trackId, event.playlistFileName)
                     }
                 ),
                 nodeSupplier = ::getTrack
@@ -113,6 +119,10 @@ class LocalNodeResolver(
                     EventConfig(SaveDirectoryAsPlaylist::class) { event, _ ->
                         if (!murglar.isAndroidPlatform)
                             murglar.saveDirectoryAsPlaylist(event.dir)
+                    },
+                    EventConfig(CreateEmptyPlaylist::class) { _, _ ->
+                        if (!murglar.isAndroidPlatform)
+                            murglar.createPlaylist()
                     },
                     EventConfig(OpenPlaylistsFolder::class) { _, _ ->
                         if (!murglar.isAndroidPlatform)
@@ -138,19 +148,67 @@ class LocalNodeResolver(
             node.nodeType == PLAYLIST ->
                 listOf(NamedAction(messages.deletePlaylist, DeletePlaylist(playlistFileName(node))))
 
-            node.nodeType == TRACK ->
-                listOf(NamedAction(messages.addTrackToPlaylist, AddTrackToPlaylist(node.nodeId)))
+            node.nodeType == TRACK -> trackActions(node)
 
             node.nodePath.size == 2 && lastSegment == PLAYLISTS_ROOT_ID ->
-                listOf(NamedAction(messages.openPlaylistsFolder, OpenPlaylistsFolder))
+                listOf(
+                    NamedAction(messages.createPlaylist, CreateEmptyPlaylist),
+                    NamedAction(messages.openPlaylistsFolder, OpenPlaylistsFolder)
+                )
 
             node.nodeType == NODE && lastSegment.startsWith("dir-") -> {
                 val dir = lastSegment.removePrefix("dir-").urlDecode()
-                listOf(NamedAction(messages.saveDirAsPlaylist, SaveDirectoryAsPlaylist(dir)))
+                listOf(
+                    NamedAction(messages.saveDirAsPlaylist, SaveDirectoryAsPlaylist(dir)),
+                    NamedAction(messages.createPlaylist, CreateEmptyPlaylist)
+                )
             }
 
             else -> emptyList()
         }
+    }
+
+    /**
+     * Actions of a track node: one 'Add to <playlist>' action per existing playlist
+     * (nothing is shown if there are no playlists), plus 'Remove from playlist' for a track
+     * that is opened from inside a playlist.
+     */
+    private fun trackActions(node: Node): List<NamedAction> {
+        val actions = mutableListOf<NamedAction>()
+
+        containingPlaylistFileName(node)?.let { playlistFileName ->
+            actions += NamedAction(
+                messages.removeFromPlaylist,
+                RemoveTrackFromPlaylist(node.nodeId, playlistFileName)
+            )
+        }
+
+        murglar.listPlaylists().forEach { playlist ->
+            val fileName = runCatching { FsPath.of(playlist.id).fileName?.toString() }.getOrNull() ?: return@forEach
+            actions += NamedAction(
+                messages.addToPlaylist(playlist.title),
+                AddTrackToPlaylist(node.nodeId, fileName)
+            )
+        }
+
+        return actions
+    }
+
+    /**
+     * File name of the playlist containing this track node (derived from the parent
+     * path segment `playlist-<id>`), or null if the track is not inside a playlist.
+     */
+    private fun containingPlaylistFileName(node: Node): String? {
+        val path = node.nodePath
+        if (path.size < 3)
+            return null
+
+        val parentSegment = path[path.size - 2]
+        if (!parentSegment.startsWith("playlist-"))
+            return null
+
+        val playlistId = parentSegment.removePrefix("playlist-").urlDecode()
+        return runCatching { FsPath.of(playlistId).fileName?.toString() }.getOrNull()
     }
 
     private fun playlistFileName(node: Node): String =

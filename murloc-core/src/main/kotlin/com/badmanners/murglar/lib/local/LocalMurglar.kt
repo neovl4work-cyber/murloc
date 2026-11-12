@@ -14,7 +14,6 @@ import com.badmanners.murglar.lib.core.network.NetworkMiddleware
 import com.badmanners.murglar.lib.core.notification.NotificationMiddleware
 import com.badmanners.murglar.lib.core.preference.ActionPreference
 import com.badmanners.murglar.lib.core.preference.EditPreference
-import com.badmanners.murglar.lib.core.preference.ListPreference
 import com.badmanners.murglar.lib.core.preference.Preference
 import com.badmanners.murglar.lib.core.preference.PreferenceMiddleware
 import com.badmanners.murglar.lib.core.preference.SwitchPreference
@@ -71,7 +70,6 @@ class LocalMurglar(
 
         const val PREF_MUSIC_DIR = "music_dir"
         const val PREF_PLAYLISTS_DIR = "playlists_dir"
-        const val PREF_TARGET_PLAYLIST = "target_playlist"
         const val PREF_STREAM_SERVER = "stream_server"
 
         private val MESSAGES = mapOf(
@@ -135,18 +133,6 @@ class LocalMurglar(
                         summary = null,
                         action = ::openPlaylistsFolder,
                         needConfirmation = false
-                    )
-                )
-                add(
-                    ListPreference(
-                        id = "target_playlist",
-                        title = messages.targetPlaylist,
-                        message = null,
-                        nameGetter = null,
-                        valueGetter = { preferences.getString(PREF_TARGET_PLAYLIST, "") },
-                        valueSetter = { preferences.setString(PREF_TARGET_PLAYLIST, it.ifBlank { null }) },
-                        names = playlistLibrary.playlistFileNames()?.map { it.first } ?: emptyList(),
-                        values = playlistLibrary.playlistFileNames()?.map { it.second } ?: emptyList()
                     )
                 )
                 add(
@@ -271,53 +257,69 @@ class LocalMurglar(
     }
 
     /**
-     * Appends the track [trackId] to the target playlist from [PREF_TARGET_PLAYLIST]
-     * (Desktop only, custom node action). Does nothing (except a warning) if the target
-     * playlist is not selected or doesn't exist.
+     * Appends the track [trackId] to the playlist [playlistFileName]
+     * (Desktop only, custom node action).
      *
      * @return true, if the playlist was changed
      */
-    fun addTrackToTargetPlaylist(trackId: String): Boolean {
+    fun addTrackToPlaylist(trackId: String, playlistFileName: String): Boolean {
         if (isAndroidPlatform)
             return false
 
-        val target = preferences.getString(PREF_TARGET_PLAYLIST, "")
-        if (target.isEmpty() || !playlistLibrary.exists(target)) {
-            logger.w(TAG, "Target playlist is not selected or doesn't exist - track '$trackId' not added!")
+        if (!playlistLibrary.exists(playlistFileName)) {
+            logger.w(TAG, "Playlist '$playlistFileName' doesn't exist - track '$trackId' not added!")
             return false
         }
 
         val audio = scanner.audioFile(trackId)
         if (audio == null) {
-            logger.w(TAG, "Can't find track '$trackId' - not added to '$target'!")
+            logger.w(TAG, "Can't find track '$trackId' - not added to '$playlistFileName'!")
             return false
         }
 
-        val changed = playlistLibrary.appendTracks(target, listOf(audio))
+        val changed = playlistLibrary.appendTracks(playlistFileName, listOf(audio))
         if (!changed)
-            logger.i(TAG, "Track '$trackId' is already in '$target', skipped.")
+            logger.i(TAG, "Track '$trackId' is already in '$playlistFileName', skipped.")
 
         return changed
     }
 
     /**
-     * Deletes the playlist file [fileName] from the playlists dir, resetting
-     * [PREF_TARGET_PLAYLIST] if it pointed to it (Desktop only, custom node action).
+     * Removes the track [trackId] from the playlist [playlistFileName]
+     * (Desktop only, custom node action).
+     *
+     * @return true, if the playlist was changed
+     */
+    fun removeTrackFromPlaylist(trackId: String, playlistFileName: String): Boolean {
+        if (isAndroidPlatform)
+            return false
+
+        if (!playlistLibrary.exists(playlistFileName)) {
+            logger.w(TAG, "Playlist '$playlistFileName' doesn't exist - track '$trackId' not removed!")
+            return false
+        }
+
+        val changed = playlistLibrary.removeTrack(playlistFileName, trackId)
+        if (!changed)
+            logger.i(TAG, "Track '$trackId' is not in '$playlistFileName', nothing to remove.")
+
+        return changed
+    }
+
+    /**
+     * Deletes the playlist file [fileName] from the playlists dir
+     * (Desktop only, custom node action).
      */
     fun deletePlaylist(fileName: String): Boolean {
         if (isAndroidPlatform)
             return false
 
-        val deleted = playlistLibrary.deletePlaylist(fileName)
-        if (deleted && preferences.getString(PREF_TARGET_PLAYLIST, "") == fileName)
-            preferences.setString(PREF_TARGET_PLAYLIST, null)
-
-        return deleted
+        return playlistLibrary.deletePlaylist(fileName)
     }
 
     /**
-     * Creates an empty `Новый плейлист (yyyy-MM-dd HH-mm).m3u` and selects it as the target
-     * playlist (Desktop only, ActionPreference from plugin settings).
+     * Creates an empty `Новый плейлист (yyyy-MM-dd HH-mm).m3u` (Desktop only, used by the
+     * ActionPreference from plugin settings and by the 'Create playlist' custom node actions).
      *
      * @return file name of the created playlist, or null on failure
      */
@@ -331,7 +333,6 @@ class LocalMurglar(
             ?: return null
 
         val fileName = file.fileName.toString()
-        preferences.setString(PREF_TARGET_PLAYLIST, fileName)
         notifications.shortNotify("${messages.playlistCreated} $fileName")
         return fileName
     }

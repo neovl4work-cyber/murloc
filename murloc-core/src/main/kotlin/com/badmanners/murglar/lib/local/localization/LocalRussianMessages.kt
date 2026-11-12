@@ -14,13 +14,14 @@ object LocalRussianMessages : RussianMessages(), LocalMessages {
     override val playlistsFolderMessage = "Абсолютный путь к папке с плейлистами .m3u/.m3u8"
     override val openPlaylistsFolder = "Открыть папку плейлистов"
     override val saveDirAsPlaylist = "Сохранить как плейлист"
-    override val addTrackToPlaylist = "Добавить в плейлист"
+    override val removeFromPlaylist = "Удалить из плейлиста"
     override val deletePlaylist = "Удалить плейлист"
-    override val targetPlaylist = "Целевой плейлист (для «Добавить в плейлист»)"
     override val createPlaylist = "Создать плейлист"
     override val newPlaylist = "Новый плейлист"
     override val playlistSaved = "Плейлист сохранён:"
     override val playlistCreated = "Плейлист создан:"
+
+    override fun addToPlaylist(playlistName: String) = "Добавить в «$playlistName»"
     override val useStreamServer = "Использовать встроенный сервер"
     override val useStreamServerSummary =
         "Всегда отдавать файлы через встроенный http-сервер (включите, если прямое воспроизведение файлов не работает)"

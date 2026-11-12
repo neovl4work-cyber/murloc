@@ -26,11 +26,11 @@
 ```bash
 # Desktop (jar) — JDK 17 в JAVA_HOME
 ./gradlew :murloc-core:build
-#   → murloc-core/build/libs/murglar-plugin-local-9.5.jar
+#   → murloc-core/build/libs/murglar-plugin-local-9.6.jar
 
 # Android (apk) — нужен SDK (sdk.dir в local.properties) и keystore
 ./gradlew :murloc-android:clean :murloc-android:build
-#   → murloc-android/build/outputs/apk/release/murglar-plugin-local-9.5.apk
+#   → murloc-android/build/outputs/apk/release/murglar-plugin-local-9.6.apk
 ```
 
 Полезное:
@@ -48,7 +48,7 @@
 
 - **Desktop**: jar → папка плагинов Murglar (подкаталог `plugins` рядом с murglar.exe,
   например `D:\murglar\plugins`), перезапуск плеера.
-- **Android**: `adb install murglar-plugin-local-9.5.apk` (или передать файл на устройство
+- **Android**: `adb install murglar-plugin-local-9.6.apk` (или передать файл на устройство
   и установить) — Murglar находит apk по `NoOpDiscoverableReceiver`.
 
 ## Тестирование без хоста (murloc-cli)
@@ -77,7 +77,7 @@ java -cp "murloc-cli/build/libs/murloc-cli-all.jar;$KOTLIN_STDLIB" com.badmanner
 | `node/LocalNodeResolver.kt` | BaseNodeResolver: Root `myMusic` + Root `playlists` (Desktop-only) + MappedEntity `*/playlist-*` + Directory `*/dir-*` + Track `*/track-*`; при нескольких корнях `myMusic` показывает ноды-корни (дизамбигуация имён родителем) |
 | `model/track/LocalTrack.kt` | BaseTrack: id = путь/URI файла, «Artist - Title» из имени, папка = альбом; `LocalTrackFactory` — сборка из `AudioFile` |
 | `model/playlist/LocalPlaylist.kt` | BasePlaylist для `.m3u` (id = путь файла плейлиста) |
-| `model/event/LocalEvents.kt` | Кастомные действия нод (`CustomAction`-события): SaveDirectoryAsPlaylist, AddTrackToPlaylist, DeletePlaylist, OpenPlaylistsFolder |
+| `model/event/LocalEvents.kt` | Кастомные действия нод (`CustomAction`-события): SaveDirectoryAsPlaylist, AddTrackToPlaylist(track+файл плейлиста), RemoveTrackFromPlaylist, DeletePlaylist, CreateEmptyPlaylist, OpenPlaylistsFolder |
 | `fs/DesktopScanner.kt` | java.nio: сканирование по списку корней (`musicDirs()`), фильтр расширений (mp3/flac/ogg/m4a/wav/aac/opus/wma); payload путей нод = абсолютные пути |
 | `fs/AndroidScanner.kt` | MediaStore через рефлексию (`ActivityThread.currentApplication()` → ContentResolver); `hasMultipleRoots = false` |
 | `fs/PlaylistLibrary.kt` | Чтение `.m3u`/`.m3u8` (не рекурсивно): `#EXTINF`, относительные пути (`/` и `\`), пропуск несуществующих, без кэша |
@@ -100,7 +100,10 @@ java -cp "murloc-cli/build/libs/murloc-cli-all.jar;$KOTLIN_STDLIB" com.badmanner
   (`LocalEvents.kt`) объявляются через `EventConfig` в конфигурациях резолвера
   (для Directory-нод — через `UnmappedEntity(type = NODE)`, т.к. у `Directory`/`Root`
   конфигураций нет поля `events`); хост показывает их из `getNodeCustomActions(node)`
-  и вызывает `handleEvent(action, node, parent)`. Действия desktop-only: не показываются
+  и вызывает `handleEvent(action, node, parent)`. Меню трека формируется динамически:
+  по NamedAction на каждый `.m3u` (целевой плейлист через настройки не используется —
+  выбор прямо в меню), плюс «Удалить из плейлиста» для трека, открытого изнутри плейлиста
+  (родительский сегмент пути `playlist-<id>`). Действия desktop-only: не показываются
   на Android (`getNodeCustomActions` возвращает пустой список) и не выполняются
   (guard внутри обработчиков). Ограничение: механика не умеет запрашивать текст у
   пользователя — нет переименования плейлистов из UI, только создание/добавление/удаление.

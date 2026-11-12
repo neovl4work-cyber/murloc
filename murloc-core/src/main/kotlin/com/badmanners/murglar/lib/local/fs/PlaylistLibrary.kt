@@ -116,6 +116,25 @@ class PlaylistLibrary(
         false
     }
 
+    /**
+     * Removes the track with passed absolute path from the playlist [fileName].
+     *
+     * @return true, if the file was changed
+     */
+    fun removeTrack(fileName: String, trackId: String): Boolean {
+        val target = playlistFile(fileName) ?: return false
+        if (!Files.isRegularFile(target))
+            return false
+
+        val existing = parse(target.toAbsolutePath().normalize())
+        val remaining = existing.filterNot { it.id == trackId }
+        if (remaining.size == existing.size)
+            return false
+
+        val stem = target.fileName.toString().substringBeforeLast('.', "")
+        return writePlaylist(stem, remaining) != null
+    }
+
     private fun playlistFile(fileName: String): Path? {
         val dir = playlistsDir() ?: return null
         val plainName = runCatching { Path.of(fileName).fileName?.toString() }.getOrNull() ?: fileName
