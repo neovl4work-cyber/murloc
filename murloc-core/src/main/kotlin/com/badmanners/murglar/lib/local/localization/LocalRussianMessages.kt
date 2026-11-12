@@ -6,6 +6,7 @@ import com.badmanners.murglar.lib.core.localization.RussianMessages
 object LocalRussianMessages : RussianMessages(), LocalMessages {
     override val serviceName = "Локальные файлы"
     override val myMusic = "Моя музыка"
+    override val playlistRoot = "Плейлисты"
     override val musicFolder = "Папки с музыкой"
     override val musicFolderMessage = "Абсолютные пути к папкам с музыкой, разделённые точкой с запятой"
     override val pickMusicFolder = "Выбрать папку с музыкой…"

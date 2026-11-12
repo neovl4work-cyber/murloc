@@ -6,6 +6,7 @@ import com.badmanners.murglar.lib.core.localization.DefaultMessages
 object LocalDefaultMessages : DefaultMessages(), LocalMessages {
     override val serviceName = "Local Files"
     override val myMusic = "My Music"
+    override val playlistRoot = "Playlists"
     override val musicFolder = "Music folders"
     override val musicFolderMessage = "Absolute paths to music folders, separated by semicolons"
     override val pickMusicFolder = "Choose music folder…"

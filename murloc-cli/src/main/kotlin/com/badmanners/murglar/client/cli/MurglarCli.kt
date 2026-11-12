@@ -43,7 +43,7 @@ object MurglarCli {
         val rootNodes = nodeResolver.getRootNodes(onlyAvailable = true)
         println("Root nodes (${rootNodes.size}):")
         rootNodes.forEach { println("  '${it.nodeName}' (${it.nodePath})") }
-        check(rootNodes.isNotEmpty()) { "No root nodes!" }
+        check(rootNodes.size == 2) { "Expected 2 root nodes (myMusic + playlists), got ${rootNodes.size}!" }
 
         // Walk the tree: folders -> tracks.
         val tracks = mutableListOf<LocalTrack>()
@@ -117,14 +117,13 @@ object MurglarCli {
     }
 
     private suspend fun checkPlaylists(murglar: LocalMurglar, nodeResolver: com.badmanners.murglar.lib.core.node.NodeResolver) {
-        val myMusic = nodeResolver.getRootNodes(true).first()
-        val rootContent = nodeResolver.getNodeContent(myMusic.nodePath, page = null)
+        // Playlists are a separate root menu item now.
+        val playlistsRoot = nodeResolver.getRootNodes(true)
+            .firstOrNull { it.nodePath.last == "playlists" }
+            ?: error("No 'Playlists' root node!")
+        println("Playlists root: '${playlistsRoot.nodeName}' (${playlistsRoot.nodePath})")
 
-        val playlistsDir = rootContent.firstOrNull { it.nodePath.last == "dir-playlists" }
-            ?: error("No 'Playlists' node in the root content!")
-        println("Playlists node: '${playlistsDir.nodeName}' (${playlistsDir.nodePath})")
-
-        val playlists = nodeResolver.getNodeContent(playlistsDir.nodePath, page = null)
+        val playlists = nodeResolver.getNodeContent(playlistsRoot.nodePath, page = null)
         check(playlists.isNotEmpty()) { "No .m3u playlists found in the playlists folder!" }
         playlists.forEach { println("  [playlist] '${it.nodeName}' (${it.nodeType}, ${it.nodePath})") }
 

@@ -39,7 +39,7 @@ dependencyResolutionManagement {
     versionCatalogs {
         create("catalog") {
             version("murglar-plugins", "9.0")
-            version("murloc", "3")  // use a single number
+            version("murloc", "4")  // use a single number
 
             // for core module
             plugin("murglar-plugin-core", "murglar-gradle-plugin-core").versionRef("murglar-plugins")

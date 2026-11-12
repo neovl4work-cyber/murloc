@@ -20,8 +20,8 @@ API плагинов: `murglar-gradle-plugin-core/android` **9.0** (jitpack), Ko
 ## Сборка
 
 ```bash
-./gradlew :murloc-core:build      # jar: murloc-core/build/libs/murglar-plugin-local-9.3.jar
-./gradlew :murloc-android:build   # apk: murloc-android/build/outputs/apk/release/murglar-plugin-local-9.3.apk
+./gradlew :murloc-core:build      # jar: murloc-core/build/libs/murglar-plugin-local-9.4.jar
+./gradlew :murloc-android:build   # apk: murloc-android/build/outputs/apk/release/murglar-plugin-local-9.4.apk
 ./gradlew :murloc-cli:build       # тестовый CLI-модуль
 ```
 
@@ -30,12 +30,12 @@ Android SDK и keystore (см. ниже).
 
 ## Установка
 
-**Desktop**: положить `murglar-plugin-local-9.3.jar` в папку плагинов Murglar Desktop
+**Desktop**: положить `murglar-plugin-local-9.4.jar` в папку плагинов Murglar Desktop
 и перезапустить приложение. Папка плагинов — подкаталог `plugins` рядом с исполняемым файлом
 Murglar (в зависимости от того, куда установлен плеер; например, при установке в `D:\murglar`
 путь будет `D:\murglar\plugins`).
 
-**Android**: установить `murglar-plugin-local-9.3.apk` на устройство — Murglar подхватит её
+**Android**: установить `murglar-plugin-local-9.4.apk` на устройство — Murglar подхватит её
 как плагин (как в документации murglar-plugins).
 
 ## Настройки плагина
@@ -66,18 +66,19 @@ Murglar (в зависимости от того, куда установлен 
 Чтение API `PlaylistsManager` в API плагинов 9.0 — пустой stub, поэтому создание плейлистов
 через UI хоста недоступно. Вместо этого плагин читает плейлисты из файлов:
 
-- В корне «Моя музыка» есть нода «Плейлисты» — все файлы `.m3u`/`.m3u8` из `playlists_dir`
-  (без рекурсии) в виде нод-плейлистов.
+- «Плейлисты» — отдельный пункт корневого меню сервиса (рядом с «Моя музыка»): все файлы
+  `.m3u`/`.m3u8` из `playlists_dir` (без рекурсии) в виде нод-плейлистов.
 - Поддерживаются `#EXTINF:<секунды>,<Artist> - <Title>` и пустые `.m3u` со списком путей.
 - Пути записей относительны файлу плейлиста (разделители `/` и `\`), несуществующие файлы
   пропускаются, порядок записей сохраняется. Файлы перечитываются при каждом открытии плейлиста.
-- Плейлисты — Desktop-only (на Android ноды нет).
+- Плейлисты — Desktop-only (на Android пункта меню нет).
 
 ## Как это работает
 
 - Логин не требуется: свой `LoginResolver` с `isLogged = true` и пустыми списками вариантов
   логина (в UI кнопки логина не появляются, а ноды остаются доступными).
-- Дерево: `BaseNodeResolver` с конфигурациями Root (`myMusic`) + Directory (`*/dir-<dir>`)
+- Дерево: `BaseNodeResolver` с конфигурациями Root (`myMusic`) + Root (`playlists`, Desktop-only)
+  + MappedEntity (`*/playlist-<playlistId>`) + Directory (`*/dir-<dir>`)
   + Track (`*/track-<trackId>`). Пути файлов URL-кодируются внутри сегментов путей нод.
 - Метаданные: id трека = канонический путь файла (desktop) или `content://media/...` URI (android);
   «Artist - Title» парсится из имени файла, вложенная папка = название альбома;

@@ -8,6 +8,7 @@ import com.badmanners.murglar.lib.core.model.node.NodeType.TRACK
 import com.badmanners.murglar.lib.core.model.node.Path
 import com.badmanners.murglar.lib.core.node.BaseNodeResolver
 import com.badmanners.murglar.lib.core.node.Directory
+import com.badmanners.murglar.lib.core.node.GenericConfiguration
 import com.badmanners.murglar.lib.core.node.MappedEntity
 import com.badmanners.murglar.lib.core.node.Root
 import com.badmanners.murglar.lib.core.node.Track
@@ -24,7 +25,7 @@ import java.nio.file.Path as FsPath
 /**
  * Node resolver that mirrors the music folder structure:
  * `My Music` root -> (music roots, if several) -> subfolder nodes -> local file tracks,
- * plus a `Playlists` directory with `.m3u`/`.m3u8` playlists (Desktop only).
+ * plus a separate `Playlists` root with `.m3u`/`.m3u8` playlists (Desktop only).
  *
  * File paths are url-encoded in node path segments, because [Path] can't contain '/' separators.
  */
@@ -33,68 +34,69 @@ class LocalNodeResolver(
     messages: LocalMessages
 ) : BaseNodeResolver<LocalMurglar, LocalMessages>(murglar, messages) {
 
-    override val configurations = listOf(
-        Root(
-            pattern = "myMusic",
-            name = messages::myMusic,
-            paging = NON_PAGEABLE,
-            hasSubdirectories = true,
-            isOwn = true,
-            contentNodeType = NODE,
-            nodeContentSupplier = ::getMusicContent
-        ),
-
-        // The 'Playlists' subdirectory of the root (exact segment 'dir-playlists').
-        // Must be declared before the generic '*/dir-<dir>' configuration to win matching.
-        Directory(
-            pattern = "myMusic/dir-playlists",
-            paging = NON_PAGEABLE,
-            hasSubdirectories = false,
-            contentNodeType = PLAYLIST,
-            nodeSupplier = ::getPlaylistsDirectory,
-            nodeContentSupplier = ::getPlaylistFiles
-        ),
-        MappedEntity(
-            pattern = "*/playlist-<playlistId>",
-            paging = NON_PAGEABLE,
-            hasSubdirectories = false,
-            type = PLAYLIST,
-            contentNodeType = TRACK,
-            nodeSupplier = ::getPlaylist,
-            nodeContentSupplier = ::getPlaylistTracks
-        ),
-
-        Directory(
-            pattern = "*/dir-<dir>",
-            paging = NON_PAGEABLE,
-            hasSubdirectories = true,
-            contentNodeType = NODE,
-            nodeSupplier = ::getDirectory,
-            nodeContentSupplier = ::getDirectoryContent
-        ),
-        Track(
-            pattern = "*/track-<trackId>",
-            nodeSupplier = ::getTrack
+    override val configurations = buildList<GenericConfiguration> {
+        add(
+            Root(
+                pattern = "myMusic",
+                name = messages::myMusic,
+                paging = NON_PAGEABLE,
+                hasSubdirectories = true,
+                isOwn = true,
+                contentNodeType = NODE,
+                nodeContentSupplier = ::getMusicContent
+            )
         )
-    )
+        if (!murglar.isAndroidPlatform)
+            add(
+                Root(
+                    pattern = "playlists",
+                    name = messages::playlistRoot,
+                    paging = NON_PAGEABLE,
+                    hasSubdirectories = false,
+                    isOwn = true,
+                    contentNodeType = PLAYLIST,
+                    nodeContentSupplier = ::getPlaylistFiles
+                )
+            )
+        add(
+            MappedEntity(
+                pattern = "*/playlist-<playlistId>",
+                paging = NON_PAGEABLE,
+                hasSubdirectories = false,
+                type = PLAYLIST,
+                contentNodeType = TRACK,
+                nodeSupplier = ::getPlaylist,
+                nodeContentSupplier = ::getPlaylistTracks
+            )
+        )
+        add(
+            Directory(
+                pattern = "*/dir-<dir>",
+                paging = NON_PAGEABLE,
+                hasSubdirectories = true,
+                contentNodeType = NODE,
+                nodeSupplier = ::getDirectory,
+                nodeContentSupplier = ::getDirectoryContent
+            )
+        )
+        add(
+            Track(
+                pattern = "*/track-<trackId>",
+                nodeSupplier = ::getTrack
+            )
+        )
+    }
 
 
-    private fun getMusicContent(parentPath: Path, page: Int?, params: Map<String, String>): List<Node> {
-        val content = mutableListOf<Node>()
-
+    private fun getMusicContent(parentPath: Path, page: Int?, params: Map<String, String>): List<Node> =
         if (murglar.scanner.hasMultipleRoots) {
-            content += murglar.scanner.listSubdirs(null).map { entry ->
+            murglar.scanner.listSubdirs(null).map { entry ->
                 val name = rootDisplayName(entry.relPath) ?: entry.name
                 subdirectoryNode("dir-${entry.relPath.urlEncode()}", name, parentPath)
             }
-        } else {            content += getContent(null, parentPath)
+        } else {
+            getContent(null, parentPath)
         }
-
-        if (!murglar.isAndroidPlatform)
-            content += subdirectoryNode(PLAYLISTS_NODE_ID, messages.playlists, parentPath)
-
-        return content
-    }
 
     private fun getDirectoryContent(parentPath: Path, page: Int?, params: Map<String, String>) =
         getContent(params["dir"]!!.urlDecode(), parentPath)
@@ -124,9 +126,6 @@ class LocalNodeResolver(
         return subdirs + tracks
     }
 
-
-    private fun getPlaylistsDirectory(parentPath: Path, params: Map<String, String>): Node =
-        subdirectoryNode(PLAYLISTS_NODE_ID, messages.playlists, parentPath)
 
     private fun getPlaylistFiles(parentPath: Path, page: Int?, params: Map<String, String>) =
         murglar.listPlaylists().convertLocalPlaylists(parentPath)
@@ -182,9 +181,4 @@ class LocalNodeResolver(
 
     private fun playlistNodePath(parentPath: Path, playlist: LocalPlaylist): Path =
         parentPath.child("playlist-${playlist.id.urlEncode()}")
-
-
-    private companion object {
-        const val PLAYLISTS_NODE_ID = "dir-playlists"
-    }
 }

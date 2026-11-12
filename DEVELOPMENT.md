@@ -26,11 +26,11 @@
 ```bash
 # Desktop (jar) — JDK 17 в JAVA_HOME
 ./gradlew :murloc-core:build
-#   → murloc-core/build/libs/murglar-plugin-local-9.3.jar
+#   → murloc-core/build/libs/murglar-plugin-local-9.4.jar
 
 # Android (apk) — нужен SDK (sdk.dir в local.properties) и keystore
 ./gradlew :murloc-android:clean :murloc-android:build
-#   → murloc-android/build/outputs/apk/release/murglar-plugin-local-9.3.apk
+#   → murloc-android/build/outputs/apk/release/murglar-plugin-local-9.4.apk
 ```
 
 Полезное:
@@ -48,7 +48,7 @@
 
 - **Desktop**: jar → папка плагинов Murglar (подкаталог `plugins` рядом с murglar.exe,
   например `D:\murglar\plugins`), перезапуск плеера.
-- **Android**: `adb install murglar-plugin-local-9.3.apk` (или передать файл на устройство
+- **Android**: `adb install murglar-plugin-local-9.4.apk` (или передать файл на устройство
   и установить) — Murglar находит apk по `NoOpDiscoverableReceiver`.
 
 ## Тестирование без хоста (murloc-cli)
@@ -74,7 +74,7 @@ java -cp "murloc-cli/build/libs/murloc-cli-all.jar;$KOTLIN_STDLIB" com.badmanner
 |---|---|
 | `LocalMurglar.kt` | Точка входа: преференсы (platform-зависимые), пикер папок (Swing), `resolveSourceForUrl`, `getTracksByMediaIds` |
 | `login/LocalLoginResolver.kt` | `isLogged = true`, пустые варианты логина → UI логина нет, ноды доступны |
-| `node/LocalNodeResolver.kt` | BaseNodeResolver: Root `myMusic` (+ нода `dir-playlists` и MappedEntity `*/playlist-*`) + Directory `*/dir-*` + Track `*/track-*`; при нескольких корнях корень показывает ноды-корни (дизамбигуация имён родителем) |
+| `node/LocalNodeResolver.kt` | BaseNodeResolver: Root `myMusic` + Root `playlists` (Desktop-only) + MappedEntity `*/playlist-*` + Directory `*/dir-*` + Track `*/track-*`; при нескольких корнях `myMusic` показывает ноды-корни (дизамбигуация имён родителем) |
 | `model/track/LocalTrack.kt` | BaseTrack: id = путь/URI файла, «Artist - Title» из имени, папка = альбом; `LocalTrackFactory` — сборка из `AudioFile` |
 | `model/playlist/LocalPlaylist.kt` | BasePlaylist для `.m3u` (id = путь файла плейлиста) |
 | `fs/DesktopScanner.kt` | java.nio: сканирование по списку корней (`musicDirs()`), фильтр расширений (mp3/flac/ogg/m4a/wav/aac/opus/wma); payload путей нод = абсолютные пути |
@@ -93,7 +93,8 @@ java -cp "murloc-cli/build/libs/murloc-cli-all.jar;$KOTLIN_STDLIB" com.badmanner
   корней; при >1 корне корень «Моя музыка» показывает по Directory-ноде на каждый корень.
 - **Плейлисты через `.m3u`**: read API `PlaylistsManager` в API 9.0 — пустой stub
   (`interface PlaylistsManager {}` + TODO), создание плейлистов из UI хоста невозможно,
-  поэтому плейлисты — файлы в `playlists_dir`, нода «Плейлисты» в корне дерева.
+  поэтому плейлисты — файлы в `playlists_dir`, а в дереве это отдельный Root `playlists`
+  рядом с `myMusic` (на Android Root не добавляется).
 - **AWT/Swing на Android**: классы `java.awt`/`javax.swing` используются только в
   platform-guarded ветках (`if (isAndroidPlatform) return`), R8 обрабатывается через
   `-dontwarn java.awt.**` / `-dontwarn javax.swing.**` в `murloc-android/proguard-rules.pro`.
