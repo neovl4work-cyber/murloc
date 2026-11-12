@@ -45,6 +45,10 @@ object MurglarCli {
 
         println("Service: '${murglar.name}' (id='${murglar.id}', login='${murglar.loginResolver.loginInfo}')")
         check(murglar.loginResolver.isLogged) { "Resolver must always be logged in!" }
+        check(murglar.murglarPreferences.any {
+            it.id == LocalMurglar.PREF_MUSIC_DIR && it is com.badmanners.murglar.lib.core.preference.EditPreference
+        }) { "Manual music folder input is missing from the settings!" }
+        println("Manual music folder input: OK")
 
         val nodeResolver = murglar.nodeResolver
 

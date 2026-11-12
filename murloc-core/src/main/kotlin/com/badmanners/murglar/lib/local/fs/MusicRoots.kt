@@ -1,5 +1,7 @@
 package com.badmanners.murglar.lib.local.fs
 
+import java.net.URI
+
 
 /**
  * Music folder root of the `music_dir` preference, parsed for Android scanners.
@@ -28,12 +30,23 @@ internal object MusicRoots {
 
         // SAF tree uri, e.g. content://com.android.externalstorage.documents/tree/AE7C-9F03:Music/
         if (path.startsWith("content://")) {
-            val documentId = path.substringAfter("/tree/", "").trimEnd('/')
-            if (documentId.isEmpty())
+            val uri = runCatching { URI(path.replace(" ", "%20")) }.getOrNull() ?: return null
+            if (uri.authority != "com.android.externalstorage.documents")
                 return null
-            val volume = documentId.substringBefore(':').let { if (it == "primary") "external" else it }
-            val relative = documentId.substringAfter(':', missingDelimiterValue = "")
-                .replace(':', '/').trim('/')
+
+            val rawDocumentId = uri.rawPath?.substringAfter("/tree/", "")?.trimEnd('/').orEmpty()
+            val documentId = runCatching {
+                java.net.URLDecoder.decode(rawDocumentId.replace("+", "%2B"), "UTF-8")
+            }.getOrNull() ?: return null
+            val separator = documentId.indexOf(':')
+            if (separator <= 0)
+                return null
+
+            val rawVolume = documentId.substring(0, separator)
+            val volume = if (rawVolume.equals("primary", ignoreCase = true)) "external" else rawVolume
+            val relative = documentId.substring(separator + 1).replace(':', '/').trim('/')
+            if (relative.split('/').any { it == ".." })
+                return null
             return Root(relative, volume)
         }
 

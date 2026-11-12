@@ -141,7 +141,8 @@ class LocalMurglar(
                     title = messages.musicFolder,
                     message = if (isAndroidPlatform) messages.musicFolderMessageAndroid else messages.musicFolderMessage,
                     getter = { preferences.getString(PREF_MUSIC_DIR, defaultMusicDir()) },
-                    setter = { preferences.setString(PREF_MUSIC_DIR, it) }
+                    setter = { preferences.setString(PREF_MUSIC_DIR, it) },
+                    refreshAllAfterChange = true
                 )
             )
 
@@ -513,24 +514,28 @@ class LocalMurglar(
      */
     fun openAllFilesAccessSettings(): Boolean = try {
         val context = AndroidHost.context(logger) ?: return false
-
         val intentClass = Class.forName("android.content.Intent")
         val uriClass = Class.forName("android.net.Uri")
+
+        fun startSettings(action: String, data: Any?) {
+            val intent = intentClass.getConstructor(String::class.java).newInstance(action)
+            if (data != null)
+                intent.javaClass.getMethod("setData", uriClass).invoke(intent, data)
+            intent.javaClass.getMethod("addFlags", Int::class.java).invoke(intent, 0x10000000)
+            context.javaClass.getMethod("startActivity", intentClass).invoke(context, intent)
+        }
 
         val packageName = context.javaClass.getMethod("getPackageName").invoke(context) as String
         val data = uriClass
             .getMethod("fromParts", String::class.java, String::class.java, String::class.java)
             .invoke(null, "package", packageName, null)
 
-        val intent = intentClass
-            .getConstructor(String::class.java)
-            .newInstance("android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION")
-            .also { intent ->
-                intent.javaClass.getMethod("setData", uriClass).invoke(intent, data)
-                intent.javaClass.getMethod("addFlags", Int::class.java).invoke(intent, 0x10000000)
-            }
-
-        context.javaClass.getMethod("startActivity", intentClass).invoke(context, intent)
+        try {
+            startSettings("android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION", data)
+        } catch (e: Throwable) {
+            logger.w(TAG, "Can't open the app-specific all-files access settings, trying the general screen!", e)
+            startSettings("android.settings.MANAGE_ALL_FILES_ACCESS_PERMISSION", null)
+        }
         true
     } catch (e: Throwable) {
         logger.w(TAG, "Can't open the all-files access settings!", e)

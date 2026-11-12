@@ -26,11 +26,11 @@
 ```bash
 # Desktop (jar) — JDK 17 в JAVA_HOME
 ./gradlew :murloc-core:build
-#   → murloc-core/build/libs/murglar-plugin-local-9.10.jar
+#   → murloc-core/build/libs/murglar-plugin-local-9.11.jar
 
 # Android (apk) — нужен SDK (sdk.dir в local.properties) и keystore
 ./gradlew :murloc-android:clean :murloc-android:build
-#   → murloc-android/build/outputs/apk/release/murglar-plugin-local-9.10.apk
+#   → murloc-android/build/outputs/apk/release/murglar-plugin-local-9.11.apk
 ```
 
 Полезное:
@@ -52,7 +52,7 @@
 
 - **Desktop**: jar → папка плагинов Murglar (подкаталог `plugins` рядом с murglar.exe,
   например `D:\murglar\plugins`), перезапуск плеера.
-- **Android**: `adb install murglar-plugin-local-9.10.apk` (или передать файл на устройство
+- **Android**: `adb install murglar-plugin-local-9.11.apk` (или передать файл на устройство
   и установить) — Murglar находит apk по `NoOpDiscoverableReceiver`.
 
 ## Тестирование без хоста (murloc-cli)
@@ -108,12 +108,15 @@ java -cp "murloc-cli/build/libs/murloc-cli-all.jar;$KOTLIN_STDLIB" com.badmanner
   `java.nio`, всё остальное — только `java.io`.
 - **Прямой доступ к файлам на Android (основной режим)**: плагин просит выдать
   «Доступ ко всем файлам» приложению Murglar (системный экран открывается рефлексией
-  из процесса хоста) и дальше ходит по `/storage/...` обычным `java.io.File`
-  (`DirectAndroidScanner`) — реальные пути треков, папки как на диске, никакого
-  MediaStore и никаких вызовов в другой процесс. SAF-пикер через отдельную активность
-  apk (v1.8–v1.9) дал падения хоста на живом устройстве — механика удалена.
+  из процесса хоста; при сбое app-specific intent открывается общий экран) и дальше ходит
+  по `/storage/...` обычным `java.io.File` (`DirectAndroidScanner`) — реальные пути треков,
+  папки как на диске, никакого MediaStore и никаких вызовов в другой процесс. SAF-пикер
+  через отдельную активность apk (v1.8–v1.9) удалён после сообщений о падениях хоста;
+  точная причина без logcat не установлена. Выбор сканера выполняется при создании плагина,
+  поэтому после выдачи разрешения Murglar нужно полностью перезапустить.
   **Запасной режим** без разрешения — MediaStore-сканер с volume-aware фильтром
-  (`MusicRoots` парсит относительные/абсолютные пути и SAF tree-ссылки).
+  (`MusicRoots` парсит относительные/абсолютные пути и SAF tree-ссылки с UTF-8 decoding).
+  Поле `music_dir` остаётся доступным для ручного ввода и имеет `refreshAllAfterChange = true`.
 - **Кастомные действия нод (events-механика)**: свои `@Model CustomAction`-события
   (`LocalEvents.kt`) объявляются через `EventConfig` в конфигурациях резолвера
   (для Directory-нод — через `UnmappedEntity(type = NODE)`, т.к. у `Directory`/`Root`
@@ -141,9 +144,11 @@ java -cp "murloc-cli/build/libs/murloc-cli-all.jar;$KOTLIN_STDLIB" com.badmanner
    сработать в процессе хоста; тогда библиотека пустая (ошибка в логе хоста).
 3. **MediaStore** — список пуст, если у хоста нет разрешения на чтение медиатеки.
 4. **Длительность треков на Desktop** не определяется (нет парсера тегов) — в UI `-1`.
-5. **Прямой доступ к файлам** — зависит от того, выдаст ли пользователь разрешение
-   «Доступ ко всем файлам» приложению Murglar (кнопка в настройках сервиса открывает
-   системный экран). Без разрешения — запасной MediaStore-режим (см. риск 3).
+5. **Прямой доступ к файлам** — зависит от того, объявлено ли разрешение в манифесте
+   и выдано ли оно приложению Murglar. Кнопка открывает app-specific системный экран,
+   а при сбое — общий. После выдачи разрешения Murglar нужно полностью перезапустить:
+   сканер выбирается при создании плагина. Без разрешения — MediaStore-режим (см. риск 3).
+   Разрешение в манифесте apk плагина само по себе хосту доступ не добавляет.
 6. **Rename-преференсы** строятся при открытии настроек: новый плейлист появится в списке
    полей переименования после перезахода в настройки (если хост кэширует список
    преференсов — после перезапуска).

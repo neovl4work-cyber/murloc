@@ -31,7 +31,7 @@ import com.badmanners.murglar.lib.local.model.event.UseDirectoryAsMusicRoot
 import com.badmanners.murglar.lib.local.model.playlist.LocalPlaylist
 import com.badmanners.murglar.lib.local.model.track.LocalTrack
 import com.badmanners.murglar.lib.local.model.track.LocalTrackFactory
-import java.nio.file.Path as FsPath
+import java.io.File
 
 
 /**
@@ -281,25 +281,25 @@ class LocalNodeResolver(
 
     /**
      * Display name for a music root directory node (with parent suffix on name collisions),
-     * or null if [dir] is not one of the music roots (Desktop-only: Android has a single root).
+     * or null if [dir] is not one of the configured music roots.
      */
     private fun rootDisplayName(dir: String): String? {
         if (!murglar.scanner.hasMultipleRoots)
             return null
 
-        val path = runCatching { FsPath.of(dir).toAbsolutePath().normalize() }.getOrNull() ?: return null
-        val roots = murglar.musicDirs().map { it.toAbsolutePath().normalize() }
+        val path = runCatching { File(dir).absoluteFile.normalize() }.getOrNull() ?: return null
+        val roots = murglar.scanner.listSubdirs(null).map { File(it.relPath).absoluteFile.normalize() }
         if (path !in roots)
             return null
 
-        val name = path.fileName?.toString() ?: return null
-        val collision = roots.count { it.fileName == path.fileName } > 1
+        val name = path.name.ifEmpty { return null }
+        val collision = roots.count { it.name == path.name } > 1
         if (!collision)
             return name
 
-        val parent = path.parent
-        val suffix = parent?.fileName?.toString()
-            ?: parent?.toString()?.replace('\\', '/')?.trimEnd('/')
+        val parent = path.parentFile
+        val suffix = parent?.name?.takeIf { it.isNotEmpty() }
+            ?: parent?.path?.replace('\\', '/')?.trimEnd('/')
             ?: "?"
         return "$name ($suffix)"
     }
