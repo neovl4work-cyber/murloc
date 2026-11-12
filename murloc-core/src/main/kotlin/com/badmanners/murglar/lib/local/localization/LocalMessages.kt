@@ -8,7 +8,10 @@ interface LocalMessages : Messages {
     val playlistRoot: String
     val musicFolder: String
     val musicFolderMessage: String
+    val musicFolderMessageAndroid: String
     val pickMusicFolder: String
+    val pickMusicFolderPicked: String
+    val pickMusicFolderCancelled: String
     val playlistsFolder: String
     val playlistsFolderMessage: String
     val openPlaylistsFolder: String
@@ -25,4 +28,10 @@ interface LocalMessages : Messages {
     val folderNotFound: String
 
     fun addToPlaylist(playlistName: String): String
+
+    fun renamePlaylist(playlistName: String): String
+
+    val renamePlaylistMessage: String
+    val playlistRenamed: String
+    val playlistRenameFailed: String
 }

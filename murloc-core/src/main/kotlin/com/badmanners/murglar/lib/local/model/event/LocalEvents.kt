@@ -8,7 +8,9 @@ import com.badmanners.murglar.lib.core.utils.contract.Model
  * Custom node actions of the plugin (see [com.badmanners.murglar.lib.core.node.NodeResolver.getNodeCustomActions]
  * and `handleEvent`).
  *
- * All actions are Desktop-only - they are neither shown nor executed on Android.
+ * Rename is not here on purpose: the custom action mechanics can't ask the user for a text,
+ * renaming is done through the per-playlist 'Rename' EditPreferences in the plugin settings
+ * (see [com.badmanners.murglar.lib.local.LocalMurglar]).
  */
 
 /**
@@ -53,15 +55,15 @@ object CreateEmptyPlaylist : CustomAction {
 }
 
 /**
- * Opens a Swing directory picker and merges the selected folders into the `music_dir`
- * preference (Desktop only).
+ * Opens the system folder picker (Swing chooser on Desktop, `ACTION_OPEN_DOCUMENT_TREE`
+ * on Android) and merges the selected folders into the `music_dir` preference.
  */
 object PickMusicFolder : CustomAction {
     private fun readResolve(): Any = PickMusicFolder
 }
 
 /**
- * Opens the playlists folder in the system file manager.
+ * Opens the playlists folder in the system file manager (Desktop only).
  */
 object OpenPlaylistsFolder : CustomAction {
     private fun readResolve(): Any = OpenPlaylistsFolder

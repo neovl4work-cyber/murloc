@@ -8,14 +8,20 @@ import java.io.InputStream
 /**
  * [FileScanner] for Android - reads the device media library through `MediaStore.Audio`.
  *
+ * The library can be limited to specific folders through the `music_dir` preference:
+ * entries are folder paths relative to the internal storage root (e.g. `Music` or
+ * `Music/Discounted`), absolute paths like `/storage/emulated/0/Music` are also accepted
+ * (see [normalizeRoots]). An empty preference means the whole media library.
+ *
  * The plugin has no access to a `Context` through the plugins API, so the application context
- * is obtained through reflection (`ActivityThread.currentApplication()`). If that fails
- * on the host app, [isAvailable] becomes false and the plugin shows an empty library.
+ * is obtained through reflection (see [AndroidHost]). If that fails on the host app,
+ * [isAvailable] becomes false and the plugin shows an empty library.
  *
  * All Android classes are accessed through reflection, so this class can be loaded on Desktop too.
  */
 class AndroidScanner(
-    private val logger: LoggerMiddleware
+    private val logger: LoggerMiddleware,
+    private val musicFolders: () -> List<String> = { emptyList() }
 ) : FileScanner {
 
     companion object {
@@ -31,7 +37,7 @@ class AndroidScanner(
     private var cached: List<AudioFile>? = null
 
     override val isAvailable: Boolean
-        get() = context() != null
+        get() = AndroidHost.context(logger) != null
 
     override val hasMultipleRoots = false
 
@@ -43,7 +49,6 @@ class AndroidScanner(
 
         return allAudio()
             .mapNotNull { it.album }
-            .map { it.removeSuffix("/") }
             .filter { it.startsWith(prefix) && it.substringAfter(prefix).isNotEmpty() }
             .map { DirEntry(it, it.substringAfterLast('/')) }
             .distinctBy { it.relPath }
@@ -59,7 +64,7 @@ class AndroidScanner(
         allAudio().firstOrNull { it.id == id }
 
     override fun open(id: String): Pair<InputStream, Long>? = try {
-        val resolver = resolver() ?: return null
+        val resolver = AndroidHost.contentResolver(logger) ?: return null
         val uri = parseUri(id) ?: return null
 
         val afdClass = Class.forName("android.content.res.AssetFileDescriptor")
@@ -105,7 +110,7 @@ class AndroidScanner(
     }
 
     private fun queryMediaStore(): List<AudioFile> {
-        val resolver = resolver() ?: return emptyList()
+        val resolver = AndroidHost.contentResolver(logger) ?: return emptyList()
 
         val mediaClass = Class.forName("android.provider.MediaStore\$Audio\$Media")
         val uri = mediaClass.getField("EXTERNAL_CONTENT_URI").get(null)
@@ -135,11 +140,14 @@ class AndroidScanner(
                 val artist = cursorString(cursor, artistColumn)?.takeIf { it.isNotEmpty() && it != "<unknown>" }
                 val duration = cursorLong(cursor, durationColumn)
 
+                val strippedPath = stripRoot(relativePath?.removeSuffix("/")?.takeIf { it.isNotEmpty() })
+                    ?: continue
+
                 audio += AudioFile(
                     id = "$CONTENT_URI$id",
                     title = name.substringBeforeLast('.', name),
                     artists = listOfNotNull(artist),
-                    album = relativePath?.removeSuffix("/")?.takeIf { it.isNotEmpty() },
+                    album = strippedPath,
                     durationMs = duration,
                     extension = extension
                 )
@@ -151,16 +159,39 @@ class AndroidScanner(
         return audio.sortedBy { it.title.lowercase() }
     }
 
-    private fun context(): Any? = try {
-        val activityThread = Class.forName("android.app.ActivityThread")
-        activityThread.getMethod("currentApplication").invoke(null)
-    } catch (e: Exception) {
-        logger.e(TAG, "Can't obtain application context through ActivityThread!", e)
-        null
-    }
+    /**
+     * Music folder roots from the `music_dir` preference, normalized to MediaStore
+     * `relative_path` form: without leading `/` and trailing `/`, `\\` replaced with `/`,
+     * absolute internal-storage prefixes (`/storage/emulated/0`, `/sdcard`) stripped.
+     * Empty entries are dropped - an empty result means the whole library.
+     */
+    private fun normalizeRoots(): List<String> = musicFolders()
+        .asSequence()
+        .map { it.trim().replace('\\', '/') }
+        .map { it.removePrefix("/storage/emulated/0").removePrefix("/sdcard") }
+        .map { it.removePrefix("/") }
+        .map { it.removeSuffix("/") }
+        .filter { it.isNotEmpty() }
+        .distinct()
+        .toList()
 
-    private fun resolver(): Any? = context()?.let {
-        it.javaClass.getMethod("getContentResolver").invoke(it)
+    /**
+     * The part of the MediaStore `relative_path` [path] relative to the longest configured
+     * music root, or null if the track is outside all configured roots
+     * (all tracks pass when no roots are configured).
+     */
+    private fun stripRoot(path: String?): String? {
+        val trackPath = path ?: ""
+        val roots = normalizeRoots()
+        if (roots.isEmpty())
+            return trackPath
+
+        val base = roots
+            .filter { trackPath == it || trackPath.startsWith("$it/") }
+            .maxByOrNull { it.length }
+            ?: return null
+
+        return trackPath.removePrefix(base).removePrefix("/")
     }
 
     private fun parseUri(id: String): Any? = try {

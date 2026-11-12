@@ -18,6 +18,7 @@ import com.badmanners.murglar.lib.core.node.UnmappedEntity
 import com.badmanners.murglar.lib.core.utils.MurglarLibUtils.urlDecode
 import com.badmanners.murglar.lib.core.utils.MurglarLibUtils.urlEncode
 import com.badmanners.murglar.lib.local.LocalMurglar
+import com.badmanners.murglar.lib.local.fs.fileNameOf
 import com.badmanners.murglar.lib.local.localization.LocalMessages
 import com.badmanners.murglar.lib.local.model.event.AddTrackToPlaylist
 import com.badmanners.murglar.lib.local.model.event.CreateEmptyPlaylist
@@ -35,7 +36,7 @@ import java.nio.file.Path as FsPath
 /**
  * Node resolver that mirrors the music folder structure:
  * `My Music` root -> (music roots, if several) -> subfolder nodes -> local file tracks,
- * plus a separate `Playlists` root with `.m3u`/`.m3u8` playlists (Desktop only).
+ * plus a separate `Playlists` root with `.m3u`/`.m3u8` playlists.
  *
  * File paths are url-encoded in node path segments, because [Path] can't contain '/' separators.
  */
@@ -56,18 +57,17 @@ class LocalNodeResolver(
                 nodeContentSupplier = ::getMusicContent
             )
         )
-        if (!murglar.isAndroidPlatform)
-            add(
-                Root(
-                    pattern = "playlists",
-                    name = messages::playlistRoot,
-                    paging = NON_PAGEABLE,
-                    hasSubdirectories = false,
-                    isOwn = true,
-                    contentNodeType = PLAYLIST,
-                    nodeContentSupplier = ::getPlaylistFiles
-                )
+        add(
+            Root(
+                pattern = "playlists",
+                name = messages::playlistRoot,
+                paging = NON_PAGEABLE,
+                hasSubdirectories = false,
+                isOwn = true,
+                contentNodeType = PLAYLIST,
+                nodeContentSupplier = ::getPlaylistFiles
             )
+        )
         add(
             MappedEntity(
                 pattern = "*/playlist-<playlistId>",
@@ -77,8 +77,7 @@ class LocalNodeResolver(
                 contentNodeType = TRACK,
                 events = listOf(
                     EventConfig(DeletePlaylist::class) { event, _ ->
-                        if (!murglar.isAndroidPlatform)
-                            murglar.deletePlaylist(event.playlistId)
+                        murglar.deletePlaylist(event.playlistId)
                     }
                 ),
                 nodeSupplier = ::getPlaylist,
@@ -100,12 +99,10 @@ class LocalNodeResolver(
                 pattern = "*/track-<trackId>",
                 events = listOf(
                     EventConfig(AddTrackToPlaylist::class) { event, _ ->
-                        if (!murglar.isAndroidPlatform)
-                            murglar.addTrackToPlaylist(event.trackId, event.playlistFileName)
+                        murglar.addTrackToPlaylist(event.trackId, event.playlistFileName)
                     },
                     EventConfig(RemoveTrackFromPlaylist::class) { event, _ ->
-                        if (!murglar.isAndroidPlatform)
-                            murglar.removeTrackFromPlaylist(event.trackId, event.playlistFileName)
+                        murglar.removeTrackFromPlaylist(event.trackId, event.playlistFileName)
                     }
                 ),
                 nodeSupplier = ::getTrack
@@ -118,20 +115,16 @@ class LocalNodeResolver(
                 type = NODE,
                 events = listOf(
                     EventConfig(SaveDirectoryAsPlaylist::class) { event, _ ->
-                        if (!murglar.isAndroidPlatform)
-                            murglar.saveDirectoryAsPlaylist(event.dir)
+                        murglar.saveDirectoryAsPlaylist(event.dir)
                     },
                     EventConfig(CreateEmptyPlaylist::class) { _, _ ->
-                        if (!murglar.isAndroidPlatform)
-                            murglar.createPlaylist()
+                        murglar.createPlaylist()
                     },
                     EventConfig(PickMusicFolder::class) { _, _ ->
-                        if (!murglar.isAndroidPlatform)
-                            murglar.pickMusicDir()
+                        murglar.pickMusicDir()
                     },
                     EventConfig(OpenPlaylistsFolder::class) { _, _ ->
-                        if (!murglar.isAndroidPlatform)
-                            murglar.openPlaylistsDir()
+                        murglar.openPlaylistsDir()
                     }
                 )
             )
@@ -139,15 +132,12 @@ class LocalNodeResolver(
     }
 
     /**
-     * Custom node menu actions (Desktop only).
+     * Custom node menu actions.
      *
      * The host shows them from the node menu and calls [handleEvent] with the action
      * from [NamedAction.action] when the user clicks one.
      */
     override fun getNodeCustomActions(node: Node): List<NamedAction> {
-        if (murglar.isAndroidPlatform)
-            return emptyList()
-
         val lastSegment = node.nodePath.last
         return when {
             node.nodeType == PLAYLIST ->
@@ -156,10 +146,11 @@ class LocalNodeResolver(
             node.nodeType == TRACK -> trackActions(node)
 
             node.nodePath.size == 2 && lastSegment == PLAYLISTS_ROOT_ID ->
-                listOf(
-                    NamedAction(messages.createPlaylist, CreateEmptyPlaylist),
-                    NamedAction(messages.openPlaylistsFolder, OpenPlaylistsFolder)
-                )
+                buildList {
+                    add(NamedAction(messages.createPlaylist, CreateEmptyPlaylist))
+                    if (!murglar.isAndroidPlatform)
+                        add(NamedAction(messages.openPlaylistsFolder, OpenPlaylistsFolder))
+                }
 
             node.nodePath.size == 2 && lastSegment == MY_MUSIC_ROOT_ID ->
                 listOf(NamedAction(messages.pickMusicFolder, PickMusicFolder))
@@ -192,7 +183,7 @@ class LocalNodeResolver(
         }
 
         murglar.listPlaylists().forEach { playlist ->
-            val fileName = runCatching { FsPath.of(playlist.id).fileName?.toString() }.getOrNull() ?: return@forEach
+            val fileName = fileNameOf(playlist.id)
             actions += NamedAction(
                 messages.addToPlaylist(playlist.title),
                 AddTrackToPlaylist(node.nodeId, fileName)
@@ -216,11 +207,11 @@ class LocalNodeResolver(
             return null
 
         val playlistId = parentSegment.removePrefix("playlist-").urlDecode()
-        return runCatching { FsPath.of(playlistId).fileName?.toString() }.getOrNull()
+        return fileNameOf(playlistId)
     }
 
     private fun playlistFileName(node: Node): String =
-        runCatching { FsPath.of(node.nodeId).fileName?.toString() }.getOrNull() ?: node.nodeId
+        fileNameOf(node.nodeId)
 
 
     private fun getMusicContent(parentPath: Path, page: Int?, params: Map<String, String>): List<Node> =
@@ -282,7 +273,7 @@ class LocalNodeResolver(
 
     /**
      * Display name for a music root directory node (with parent suffix on name collisions),
-     * or null if [dir] is not one of the music roots.
+     * or null if [dir] is not one of the music roots (Desktop-only: Android has a single root).
      */
     private fun rootDisplayName(dir: String): String? {
         if (!murglar.scanner.hasMultipleRoots)

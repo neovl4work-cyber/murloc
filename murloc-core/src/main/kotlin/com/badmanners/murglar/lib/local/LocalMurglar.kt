@@ -3,7 +3,6 @@ package com.badmanners.murglar.lib.local
 import com.badmanners.murglar.lib.core.localization.DefaultMessages.Companion.DEFAULT
 import com.badmanners.murglar.lib.core.localization.RussianMessages.Companion.RUSSIAN
 import com.badmanners.murglar.lib.core.log.LoggerMiddleware
-import com.badmanners.murglar.lib.core.model.node.NodeType.NODE
 import com.badmanners.murglar.lib.core.model.track.source.Bitrate
 import com.badmanners.murglar.lib.core.model.track.source.Extension
 import com.badmanners.murglar.lib.core.model.track.source.QualityTier
@@ -20,10 +19,14 @@ import com.badmanners.murglar.lib.core.preference.SwitchPreference
 import com.badmanners.murglar.lib.core.service.BaseMurglar
 import com.badmanners.murglar.lib.core.utils.MurglarLibUtils.isAndroid
 import com.badmanners.murglar.lib.core.utils.MurglarLibUtils.urlEncode
+import com.badmanners.murglar.lib.local.fs.AndroidFolderPicker
+import com.badmanners.murglar.lib.local.fs.AndroidHost
 import com.badmanners.murglar.lib.local.fs.AndroidScanner
+import com.badmanners.murglar.lib.local.fs.AudioFile
 import com.badmanners.murglar.lib.local.fs.DesktopScanner
 import com.badmanners.murglar.lib.local.fs.FileScanner
 import com.badmanners.murglar.lib.local.fs.PlaylistLibrary
+import com.badmanners.murglar.lib.local.fs.fileNameOf
 import com.badmanners.murglar.lib.local.http.StreamServer
 import com.badmanners.murglar.lib.local.localization.LocalDefaultMessages
 import com.badmanners.murglar.lib.local.localization.LocalMessages
@@ -34,6 +37,7 @@ import com.badmanners.murglar.lib.local.model.track.LocalTrack
 import com.badmanners.murglar.lib.local.model.track.LocalTrackFactory
 import com.badmanners.murglar.lib.local.node.LocalNodeResolver
 import java.awt.GraphicsEnvironment
+import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 import javax.swing.JFileChooser
@@ -46,8 +50,13 @@ import javax.swing.JFileChooser
  * If the host player can't play such urls (or if forced by the corresponding preference),
  * files are streamed through the embedded [StreamServer] on `http://127.0.0.1:<random port>`.
  *
- * Several music folders are supported at once ([PREF_MUSIC_DIR] value is a `;` separated list),
- * playlists are read from `.m3u`/`.m3u8` files in [PREF_PLAYLISTS_DIR]
+ * Several music folders are supported at once ([PREF_MUSIC_DIR] value is a `;` separated list).
+ * On Desktop folders are absolute paths scanned through `java.nio.file`, on Android - paths relative
+ * to the internal storage root (or absolute) that limit the `MediaStore` library
+ * (an empty value means the whole library).
+ *
+ * Playlists are read from `.m3u`/`.m3u8` files: on Desktop - from the [PREF_PLAYLISTS_DIR] folder,
+ * on Android - from the app-internal storage of the host app
  * (the read part of the `PlaylistsManager` plugins API is a stub in API 9.0,
  * so playlists can't be created from the host UI).
  */
@@ -83,10 +92,12 @@ class LocalMurglar(
     val isAndroidPlatform = isAndroid()
 
     val scanner: FileScanner by lazy {
-        if (isAndroidPlatform) AndroidScanner(logger) else DesktopScanner(logger, ::musicDirs)
+        if (isAndroidPlatform) AndroidScanner(logger, ::rawMusicFolders) else DesktopScanner(logger, ::musicDirs)
     }
 
-    val playlistLibrary = PlaylistLibrary(logger, ::playlistsDir)
+    val playlistLibrary = PlaylistLibrary(logger, ::playlistsDir) { id ->
+        scanner.audioFile(id)
+    }
 
     private val streamServer = StreamServer(logger, scanner)
 
@@ -100,23 +111,24 @@ class LocalMurglar(
                 EditPreference(
                     id = "music_dir",
                     title = messages.musicFolder,
-                    message = messages.musicFolderMessage,
+                    message = if (isAndroidPlatform) messages.musicFolderMessageAndroid else messages.musicFolderMessage,
                     getter = { preferences.getString(PREF_MUSIC_DIR, defaultMusicDir()) },
                     setter = { preferences.setString(PREF_MUSIC_DIR, it) }
                 )
             )
 
-            if (!isAndroidPlatform) {
-                add(
-                    ActionPreference(
-                        id = "pick_music_dir",
-                        title = messages.pickMusicFolder,
-                        summary = null,
-                        action = ::pickMusicDir,
-                        needConfirmation = false,
-                        refreshAllAfterInvoke = true
-                    )
+            add(
+                ActionPreference(
+                    id = "pick_music_dir",
+                    title = messages.pickMusicFolder,
+                    summary = null,
+                    action = ::pickMusicDir,
+                    needConfirmation = false,
+                    refreshAllAfterInvoke = true
                 )
+            )
+
+            if (!isAndroidPlatform) {
                 add(
                     EditPreference(
                         id = "playlists_dir",
@@ -135,17 +147,18 @@ class LocalMurglar(
                         needConfirmation = false
                     )
                 )
-                add(
-                    ActionPreference(
-                        id = "create_playlist",
-                        title = messages.createPlaylist,
-                        summary = null,
-                        action = { createPlaylist() },
-                        needConfirmation = false,
-                        refreshAllAfterInvoke = true
-                    )
-                )
             }
+
+            add(
+                ActionPreference(
+                    id = "create_playlist",
+                    title = messages.createPlaylist,
+                    summary = null,
+                    action = { createPlaylist() },
+                    needConfirmation = false,
+                    refreshAllAfterInvoke = true
+                )
+            )
 
             add(
                 SwitchPreference(
@@ -156,6 +169,22 @@ class LocalMurglar(
                     setter = { preferences.setBoolean(PREF_STREAM_SERVER, it) }
                 )
             )
+
+            // One 'Rename' text field per playlist (the plugins API has no text input in
+            // custom node actions, but EditPreferences in the settings screen do have it).
+            listPlaylists().forEach { playlist ->
+                val fileName = fileNameOf(playlist.id)
+                add(
+                    EditPreference(
+                        id = "rename_playlist_$fileName",
+                        title = messages.renamePlaylist(playlist.title),
+                        message = messages.renamePlaylistMessage,
+                        getter = { playlist.title },
+                        setter = { newTitle -> renamePlaylist(fileName, playlist.title, newTitle) },
+                        refreshAllAfterChange = true
+                    )
+                )
+            }
         }
 
     override val possibleFormats: List<SourceFormat>
@@ -197,13 +226,18 @@ class LocalMurglar(
 
 
     /**
-     * Music roots, parsed from the `;` separated [PREF_MUSIC_DIR] preference.
-     * Blank entries are skipped, non-existing directories are logged and skipped.
+     * Raw `;` separated entries of [PREF_MUSIC_DIR] (Android scanner normalizes them itself).
      */
-    fun musicDirs(): List<Path> = preferences.getString(PREF_MUSIC_DIR, defaultMusicDir())
+    private fun rawMusicFolders(): List<String> = preferences.getString(PREF_MUSIC_DIR, defaultMusicDir())
         .split(';')
         .map { it.trim() }
         .filter { it.isNotEmpty() }
+
+    /**
+     * Music roots, parsed from the `;` separated [PREF_MUSIC_DIR] preference (Desktop only).
+     * Blank entries are skipped, non-existing directories are logged and skipped.
+     */
+    fun musicDirs(): List<Path> = rawMusicFolders()
         .mapNotNull { raw ->
             try {
                 Path.of(raw).takeIf { Files.isDirectory(it) }
@@ -214,58 +248,56 @@ class LocalMurglar(
         }
 
     /**
-     * Playlists dir from [PREF_PLAYLISTS_DIR], if it exists.
+     * Playlists dir: from [PREF_PLAYLISTS_DIR] on Desktop, app-internal storage of the host
+     * app on Android (created on demand, there is no user-visible folder there).
      */
-    fun playlistsDir(): Path? {
-        val raw = preferences.getString(PREF_PLAYLISTS_DIR, defaultPlaylistsDir())
-        if (raw.isBlank())
-            return null
-
-        return try {
-            Path.of(raw).takeIf { Files.isDirectory(it) }
-        } catch (e: Exception) {
-            logger.w(TAG, "Invalid playlists folder '$raw'!", e)
-            null
+    fun playlistsDir(): File? =
+        if (isAndroidPlatform) {
+            AndroidHost.playlistsDir(logger)
+        } else {
+            val raw = preferences.getString(PREF_PLAYLISTS_DIR, defaultPlaylistsDir())
+            if (raw.isBlank())
+                null
+            else
+                try {
+                    File(raw).takeIf { it.isDirectory }
+                } catch (e: Exception) {
+                    logger.w(TAG, "Invalid playlists folder '$raw'!", e)
+                    null
+                }
         }
-    }
 
     fun listPlaylists(): List<LocalPlaylist> =
-        if (isAndroidPlatform) emptyList() else playlistLibrary.listPlaylists() ?: emptyList()
+        playlistLibrary.listPlaylists() ?: emptyList()
 
     /**
-     * Saves all audio files directly in the directory [dir] (absolute path) as a new `.m3u`
-     * playlist named after the directory (Desktop only, custom node action).
+     * Saves all audio files directly in the directory [dir] (absolute path on Desktop,
+     * MediaStore relative path on Android) as a new `.m3u` playlist named after the directory
+     * (custom node action).
      *
      * @return true on success
      */
     fun saveDirectoryAsPlaylist(dir: String): Boolean {
-        if (isAndroidPlatform)
-            return false
-
         val audio = scanner.listAudio(dir)
         if (audio.isEmpty()) {
             logger.w(TAG, "No audio files in '$dir' - playlist not created!")
             return false
         }
 
-        val name = runCatching { Path.of(dir).fileName?.toString() }.getOrNull() ?: dir
+        val name = fileNameOf(dir)
         val file = playlistLibrary.writePlaylist(name, audio)
         if (file != null)
-            notifications.shortNotify("${messages.playlistSaved} ${file.fileName}")
+            notifications.shortNotify("${messages.playlistSaved} ${file.name}")
 
         return file != null
     }
 
     /**
-     * Appends the track [trackId] to the playlist [playlistFileName]
-     * (Desktop only, custom node action).
+     * Appends the track [trackId] to the playlist [playlistFileName] (custom node action).
      *
      * @return true, if the playlist was changed
      */
     fun addTrackToPlaylist(trackId: String, playlistFileName: String): Boolean {
-        if (isAndroidPlatform)
-            return false
-
         if (!playlistLibrary.exists(playlistFileName)) {
             logger.w(TAG, "Playlist '$playlistFileName' doesn't exist - track '$trackId' not added!")
             return false
@@ -285,15 +317,11 @@ class LocalMurglar(
     }
 
     /**
-     * Removes the track [trackId] from the playlist [playlistFileName]
-     * (Desktop only, custom node action).
+     * Removes the track [trackId] from the playlist [playlistFileName] (custom node action).
      *
      * @return true, if the playlist was changed
      */
     fun removeTrackFromPlaylist(trackId: String, playlistFileName: String): Boolean {
-        if (isAndroidPlatform)
-            return false
-
         if (!playlistLibrary.exists(playlistFileName)) {
             logger.w(TAG, "Playlist '$playlistFileName' doesn't exist - track '$trackId' not removed!")
             return false
@@ -307,34 +335,44 @@ class LocalMurglar(
     }
 
     /**
-     * Deletes the playlist file [fileName] from the playlists dir
-     * (Desktop only, custom node action).
+     * Deletes the playlist file [fileName] from the playlists dir (custom node action).
      */
-    fun deletePlaylist(fileName: String): Boolean {
-        if (isAndroidPlatform)
-            return false
-
-        return playlistLibrary.deletePlaylist(fileName)
-    }
+    fun deletePlaylist(fileName: String): Boolean =
+        playlistLibrary.deletePlaylist(fileName)
 
     /**
-     * Creates an empty `Новый плейлист (yyyy-MM-dd HH-mm).m3u` (Desktop only, used by the
-     * ActionPreference from plugin settings and by the 'Create playlist' custom node actions).
+     * Creates an empty `Новый плейлист (yyyy-MM-dd HH-mm).m3u` (used by the ActionPreference
+     * from plugin settings and by the 'Create playlist' custom node actions).
      *
      * @return file name of the created playlist, or null on failure
      */
     fun createPlaylist(): String? {
-        if (isAndroidPlatform)
-            return null
-
         val stamp = org.threeten.bp.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH-mm")
             .format(org.threeten.bp.LocalDateTime.now())
         val file = playlistLibrary.writePlaylist("${messages.newPlaylist} ($stamp)", emptyList())
             ?: return null
 
-        val fileName = file.fileName.toString()
+        val fileName = file.name
         notifications.shortNotify("${messages.playlistCreated} $fileName")
         return fileName
+    }
+
+    /**
+     * Renames the playlist [fileName] from [oldTitle] to [newTitle]
+     * (used by the per-playlist 'Rename' EditPreferences in the plugin settings).
+     */
+    fun renamePlaylist(fileName: String, oldTitle: String, newTitle: String) {
+        val target = newTitle.trim()
+        if (target.isEmpty() || target == oldTitle)
+            return
+
+        if (playlistLibrary.rename(fileName, target)) {
+            notifications.shortNotify("${messages.playlistRenamed} $target")
+            logger.i(TAG, "Playlist '$oldTitle' renamed to '$target'.")
+        } else {
+            notifications.shortNotify(messages.playlistRenameFailed)
+            logger.w(TAG, "Can't rename playlist '$oldTitle' to '$target'!")
+        }
     }
 
     /**
@@ -353,13 +391,13 @@ class LocalMurglar(
 
             val raw = preferences.getString(PREF_PLAYLISTS_DIR, defaultPlaylistsDir())
             val dir = try {
-                Path.of(raw).takeIf { Files.isDirectory(it) } ?: Files.createDirectories(Path.of(raw))
+                File(raw).takeIf { it.isDirectory } ?: File(raw).apply { mkdirs() }
             } catch (e: Exception) {
                 logger.w(TAG, "Can't create playlists folder '$raw'!", e)
                 return false
             }
 
-            desktop.open(dir.toFile())
+            desktop.open(dir)
             true
         } catch (e: Exception) {
             logger.w(TAG, "Can't open playlists folder!", e)
@@ -373,14 +411,26 @@ class LocalMurglar(
     private fun defaultPlaylistsDir(): String = "${System.getProperty("user.home")}/MurglarPlaylists"
 
     /**
-     * Shows a Swing directory picker and merges the selected folders into [PREF_MUSIC_DIR]
-     * (Desktop only, used by the ActionPreference from plugin settings and by the
-     * 'Pick music folder' custom node action on the My Music root). Silently does nothing
-     * in headless environments.
+     * Picks music folders and merges them into [PREF_MUSIC_DIR]:
+     * - on Desktop - shows a Swing directory picker (with a protection from headless environments);
+     * - on Android - launches the system `ACTION_OPEN_DOCUMENT_TREE` picker from the plugin apk
+     *   (see [AndroidFolderPicker]) and waits for the result.
+     *
+     * Used by the ActionPreference from plugin settings and by the 'Pick music folder'
+     * custom node action on the My Music root.
      */
     fun pickMusicDir() {
-        if (isAndroidPlatform)
+        if (isAndroidPlatform) {
+            AndroidFolderPicker.pick(
+                logger,
+                onPicked = { picked ->
+                    mergeMusicFolder(picked)
+                    notifications.shortNotify("${messages.pickMusicFolderPicked} $picked")
+                },
+                onCancelled = { notifications.shortNotify(messages.pickMusicFolderCancelled) }
+            )
             return
+        }
 
         try {
             if (GraphicsEnvironment.isHeadless()) {
@@ -399,18 +449,22 @@ class LocalMurglar(
             if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION)
                 return
 
-            val existing = preferences.getString(PREF_MUSIC_DIR, defaultMusicDir())
-                .split(';')
+            val merged = (rawMusicFolders() + chooser.selectedFiles.map { it.absolutePath })
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }
-
-            val merged = (existing + chooser.selectedFiles.map { it.absolutePath })
                 .distinct()
 
             preferences.setString(PREF_MUSIC_DIR, merged.joinToString(";"))
         } catch (e: Exception) {
             logger.w(TAG, "Can't show directory picker!", e)
         }
+    }
+
+    private fun mergeMusicFolder(picked: String) {
+        val merged = (rawMusicFolders() + picked)
+            .distinct()
+
+        preferences.setString(PREF_MUSIC_DIR, merged.joinToString(";"))
     }
 
     /**

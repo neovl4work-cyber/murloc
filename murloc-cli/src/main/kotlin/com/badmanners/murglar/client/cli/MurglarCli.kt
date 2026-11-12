@@ -212,6 +212,20 @@ object MurglarCli {
         nodeResolver.handleEvent(deleteAction.action, playlistNode, null)
         check(!murglar.playlistLibrary.exists(createdName)) { "Playlist file was not deleted!" }
         println("Delete playlist: OK")
+
+        // f) Rename via the same code path as the 'Rename' EditPreference in the settings.
+        val renamedTitle = "Renamed by CLI"
+        murglar.renamePlaylist(savedName, "Artist One - Album Name", renamedTitle)
+        check(murglar.playlistLibrary.exists("$renamedTitle.m3u")) { "Playlist was not renamed!" }
+        check(!murglar.playlistLibrary.exists(savedName)) { "Old playlist file still exists after rename!" }
+        // An occupied target name must be refused (the playlist keeps its name).
+        murglar.renamePlaylist("$renamedTitle.m3u", renamedTitle, murglar.listPlaylists()
+            .first { it.title != renamedTitle }.title)
+        check(murglar.playlistLibrary.exists("$renamedTitle.m3u")) { "Rename to an occupied name must be refused!" }
+        // Rename back, so the following checks and the repo state stay the same.
+        murglar.renamePlaylist("$renamedTitle.m3u", renamedTitle, "Artist One - Album Name")
+        check(murglar.playlistLibrary.exists(savedName)) { "Playlist was not renamed back!" }
+        println("Rename playlist: OK (occupied name refused)")
     }
 
     private suspend fun checkPlaylists(murglar: LocalMurglar, nodeResolver: com.badmanners.murglar.lib.core.node.NodeResolver) {

@@ -4,6 +4,7 @@ build/
 **/build/
 local.properties
 keystore.jks
+preferences.json
 .idea/
 *.iml
 
