@@ -18,6 +18,7 @@ class PickResultProvider : ContentProvider() {
 
     companion object {
         const val COLUMN_PATH = "path"
+        const val COLUMN_URI = "uri"
         const val COLUMN_TIMESTAMP = "timestamp"
     }
 
@@ -30,11 +31,11 @@ class PickResultProvider : ContentProvider() {
         selectionArgs: Array<out String>?,
         sortOrder: String?
     ): Cursor {
-        val cursor = MatrixCursor(arrayOf(COLUMN_PATH, COLUMN_TIMESTAMP))
+        val cursor = MatrixCursor(arrayOf(COLUMN_PATH, COLUMN_URI, COLUMN_TIMESTAMP))
 
         val context = context ?: return cursor
-        val (path, timestamp) = PickResultStore.read(context)
-        cursor.addRow(arrayOf<Any>(path, timestamp))
+        val (path, treeUri, timestamp) = PickResultStore.read(context)
+        cursor.addRow(arrayOf<Any>(path, treeUri, timestamp))
 
         return cursor
     }

@@ -16,7 +16,9 @@ import android.provider.DocumentsContract
  * (see `AndroidFolderPicker` in murloc-core).
  *
  * The result is stored as a real file path (e.g. `/storage/emulated/0/Music`), because the plugin
- * only needs the path to filter the MediaStore library - no persistable uri permission is required.
+ * only needs the path to filter the MediaStore library; the raw SAF tree uri is stored as well
+ * (and the read permission is persisted, like the host does for its download folder).
+ * Unicode folder names and spaces work - `getTreeDocumentId` returns the decoded document id.
  */
 class FolderPickActivity : Activity() {
 
@@ -35,12 +37,19 @@ class FolderPickActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
 
         val uri = data?.data
-        val path = if (requestCode == REQUEST_CODE && resultCode == RESULT_OK && uri != null)
-            treeUriToPath(uri)
-        else
-            ""
+        val path: String
+        if (requestCode == REQUEST_CODE && resultCode == RESULT_OK && uri != null) {
+            // Keep the grant (the same way the host stores its download folder) - the core
+            // only needs the real path for the MediaStore filter, but the uri is kept as well.
+            runCatching {
+                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            path = treeUriToPath(uri)
+        } else {
+            path = ""
+        }
 
-        PickResultStore.save(this, path)
+        PickResultStore.save(this, path, uri?.toString().orEmpty())
         finish()
     }
 

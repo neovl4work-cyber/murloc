@@ -205,6 +205,7 @@ class LocalMurglar(
             logger.e(TAG, "File scanner is not available - plugin will show an empty library!")
         if (!isAndroidPlatform && musicDirs().isEmpty())
             logger.w(TAG, "No valid music folders in '${preferences.getString(PREF_MUSIC_DIR, defaultMusicDir())}'!")
+        checkPickedMusicFolder()
     }
 
     override suspend fun resolveSourceForUrl(track: LocalTrack, source: Source): Source {
@@ -414,21 +415,16 @@ class LocalMurglar(
      * Picks music folders and merges them into [PREF_MUSIC_DIR]:
      * - on Desktop - shows a Swing directory picker (with a protection from headless environments);
      * - on Android - launches the system `ACTION_OPEN_DOCUMENT_TREE` picker from the plugin apk
-     *   (see [AndroidFolderPicker]) and waits for the result.
+     *   (see [AndroidFolderPicker]) and returns immediately; the picked folder is merged into
+     *   [PREF_MUSIC_DIR] on the next [checkPickedMusicFolder] call (library tree refresh).
      *
      * Used by the ActionPreference from plugin settings and by the 'Pick music folder'
      * custom node action on the My Music root.
      */
     fun pickMusicDir() {
         if (isAndroidPlatform) {
-            AndroidFolderPicker.pick(
-                logger,
-                onPicked = { picked ->
-                    mergeMusicFolder(picked)
-                    notifications.shortNotify("${messages.pickMusicFolderPicked} $picked")
-                },
-                onCancelled = { notifications.shortNotify(messages.pickMusicFolderCancelled) }
-            )
+            // Never block here: the host may invoke the action on its UI thread.
+            AndroidFolderPicker.launchPicker(logger)
             return
         }
 
@@ -465,6 +461,45 @@ class LocalMurglar(
             .distinct()
 
         preferences.setString(PREF_MUSIC_DIR, merged.joinToString(";"))
+    }
+
+    /**
+     * Timestamp of the last picker result seen by the plugin (results from previous
+     * sessions are ignored).
+     */
+    private var pickerResultSeenAt = System.currentTimeMillis()
+
+    /**
+     * Merges a freshly picked music folder into [PREF_MUSIC_DIR] (Android only).
+     *
+     * Non-blocking by design: called when the library tree is built ([onCreate] and the
+     * 'My Music' root content), so the folder picked in the system picker appears in
+     * the library as soon as the user gets back to it. Never throws into the host.
+     */
+    fun checkPickedMusicFolder() {
+        if (!isAndroidPlatform)
+            return
+
+        val result = try {
+            AndroidFolderPicker.pollPickedFolder(logger, pickerResultSeenAt)
+        } catch (e: Throwable) {
+            logger.w(TAG, "Can't poll the folder picker result!", e)
+            null
+        } ?: return
+
+        pickerResultSeenAt = result.timestamp
+        if (result.path.isEmpty()) {
+            logger.i(TAG, "Folder picker was cancelled.")
+            return
+        }
+
+        mergeMusicFolder(result.path)
+        logger.i(TAG, "Picked music folder '${result.path}' merged into '$PREF_MUSIC_DIR'.")
+        try {
+            notifications.shortNotify("${messages.pickMusicFolderPicked} ${result.path}")
+        } catch (e: Throwable) {
+            logger.w(TAG, "Can't notify about the picked folder!", e)
+        }
     }
 
     /**

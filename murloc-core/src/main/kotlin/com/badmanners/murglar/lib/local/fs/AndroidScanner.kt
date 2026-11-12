@@ -115,7 +115,7 @@ class AndroidScanner(
         val mediaClass = Class.forName("android.provider.MediaStore\$Audio\$Media")
         val uri = mediaClass.getField("EXTERNAL_CONTENT_URI").get(null)
 
-        val projection = arrayOf("_id", "_display_name", "relative_path", "duration", "artist")
+        val projection = arrayOf("_id", "_display_name", "relative_path", "duration", "artist", "volume_name")
         val cursor = resolver.javaClass
             .getMethod("query", androidNetUri(), Array<String>::class.java, String::class.java,
                 Array<String>::class.java, String::class.java)
@@ -128,6 +128,7 @@ class AndroidScanner(
             val pathColumn = columnIndex(cursor, "relative_path")
             val durationColumn = columnIndex(cursor, "duration")
             val artistColumn = columnIndex(cursor, "artist")
+            val volumeColumn = columnIndex(cursor, "volume_name")
 
             while (cursor.javaClass.getMethod("moveToNext").invoke(cursor) as Boolean) {
                 val name = cursorString(cursor, nameColumn) ?: continue
@@ -139,8 +140,10 @@ class AndroidScanner(
                 val relativePath = cursorString(cursor, pathColumn)
                 val artist = cursorString(cursor, artistColumn)?.takeIf { it.isNotEmpty() && it != "<unknown>" }
                 val duration = cursorLong(cursor, durationColumn)
+                // volume_name exists since API 29; before that there is only the primary volume.
+                val volume = cursorString(cursor, volumeColumn) ?: "external"
 
-                val strippedPath = stripRoot(relativePath?.removeSuffix("/")?.takeIf { it.isNotEmpty() })
+                val strippedPath = stripRoot(relativePath?.removeSuffix("/")?.takeIf { it.isNotEmpty() }, volume)
                     ?: continue
 
                 audio += AudioFile(
@@ -149,7 +152,8 @@ class AndroidScanner(
                     artists = listOfNotNull(artist),
                     album = strippedPath,
                     durationMs = duration,
-                    extension = extension
+                    extension = extension,
+                    volume = volume
                 )
             }
         } finally {
@@ -160,38 +164,96 @@ class AndroidScanner(
     }
 
     /**
-     * Music folder roots from the `music_dir` preference, normalized to MediaStore
-     * `relative_path` form: without leading `/` and trailing `/`, `\\` replaced with `/`,
-     * absolute internal-storage prefixes (`/storage/emulated/0`, `/sdcard`) stripped.
+     * A music folder root from the `music_dir` preference, normalized for MediaStore matching.
+     *
+     * @property path folder path without leading/trailing `/`, `\\` replaced with `/`,
+     * in `relative_path` terms (e.g. `Music` or `Music/Rock`)
+     * @property volume MediaStore volume name, null = any volume (relative paths
+     * without an explicit volume match folders with the same name on any storage)
+     */
+    private data class MusicRoot(val path: String, val volume: String?)
+
+    /**
+     * Music folder roots from the `music_dir` preference. Supported forms:
+     * - `Music`, `Music/Rock` - relative to any storage root (internal memory, SD card);
+     * - `/storage/emulated/0/Music`, `/sdcard/Music` - absolute paths of the primary storage;
+     * - `/storage/<volume>/<path>` - absolute path of a specific volume (e.g. an SD card);
+     * - SAF tree uris, like the host app stores its download folder
+     *   (`content://com.android.externalstorage.documents/tree/AE7C-9F03:Music/`).
+     *
+     * Unicode names and spaces need no escaping - matching is done on the decoded plain paths.
      * Empty entries are dropped - an empty result means the whole library.
      */
-    private fun normalizeRoots(): List<String> = musicFolders()
-        .asSequence()
-        .map { it.trim().replace('\\', '/') }
-        .map { it.removePrefix("/storage/emulated/0").removePrefix("/sdcard") }
-        .map { it.removePrefix("/") }
-        .map { it.removeSuffix("/") }
-        .filter { it.isNotEmpty() }
+    private fun normalizeRoots(): List<MusicRoot> = musicFolders()
+        .mapNotNull { parseRoot(it) }
         .distinct()
         .toList()
 
+    private fun parseRoot(raw: String): MusicRoot? {
+        var path = raw.trim().replace('\\', '/')
+        if (path.isEmpty())
+            return null
+
+        // SAF tree uri, e.g. content://com.android.externalstorage.documents/tree/AE7C-9F03:Music/
+        if (path.startsWith("content://")) {
+            val documentId = path.substringAfter("/tree/", "").trimEnd('/')
+            if (documentId.isEmpty())
+                return null
+            val volume = documentId.substringBefore(':').let { if (it == "primary") "external" else it }
+            val relative = documentId.substringAfter(':', missingDelimiterValue = "")
+                .replace(':', '/').trim('/')
+            return MusicRoot(relative, volume)
+        }
+
+        path = path.trimEnd('/')
+        return when {
+            path.isEmpty() -> null
+
+            path == "/storage/emulated/0" || path == "/sdcard" ->
+                MusicRoot("", "external")
+
+            path.startsWith("/storage/emulated/0/") ->
+                MusicRoot(path.removePrefix("/storage/emulated/0/"), "external")
+
+            path.startsWith("/sdcard/") ->
+                MusicRoot(path.removePrefix("/sdcard/"), "external")
+
+            path.startsWith("/storage/") -> {
+                val rest = path.removePrefix("/storage/")
+                val volume = rest.substringBefore('/')
+                val relative = rest.substringAfter('/', missingDelimiterValue = "").trim('/')
+                MusicRoot(relative, volume)
+            }
+
+            path.startsWith("/") ->
+                // Unknown absolute form - match by the path tail on any volume.
+                MusicRoot(path.trim('/'), null)
+
+            else ->
+                // Relative path - any volume (a `Music` folder on the internal memory
+                // and on an SD card both match).
+                MusicRoot(path, null)
+        }
+    }
+
     /**
-     * The part of the MediaStore `relative_path` [path] relative to the longest configured
-     * music root, or null if the track is outside all configured roots
-     * (all tracks pass when no roots are configured).
+     * The part of the MediaStore `relative_path` [path] of the track from the volume [volume]
+     * relative to the longest configured music root, or null if the track is outside all
+     * configured roots (all tracks pass when no roots are configured).
      */
-    private fun stripRoot(path: String?): String? {
+    private fun stripRoot(path: String?, volume: String): String? {
         val trackPath = path ?: ""
         val roots = normalizeRoots()
         if (roots.isEmpty())
             return trackPath
 
         val base = roots
-            .filter { trackPath == it || trackPath.startsWith("$it/") }
-            .maxByOrNull { it.length }
+            .filter { it.volume == null || it.volume == volume }
+            .filter { it.path.isEmpty() || trackPath == it.path || trackPath.startsWith(it.path + "/") }
+            .maxByOrNull { it.path.length }
             ?: return null
 
-        return trackPath.removePrefix(base).removePrefix("/")
+        return trackPath.removePrefix(base.path).removePrefix("/")
     }
 
     private fun parseUri(id: String): Any? = try {

@@ -10,7 +10,7 @@ object LocalRussianMessages : RussianMessages(), LocalMessages {
     override val musicFolder = "Папки с музыкой"
     override val musicFolderMessage = "Абсолютные пути к папкам с музыкой, разделённые точкой с запятой"
     override val musicFolderMessageAndroid =
-        "Папки относительно внутренней памяти, напр. Music; Download (пусто — вся аудиотека)"
+        "Папки относительно памяти (Music), абсолютные пути (/storage/…) или SAF-ссылки (content://…tree/…); пусто — вся аудиотека"
     override val pickMusicFolder = "Выбрать папку с музыкой…"
     override val pickMusicFolderPicked = "Папка с музыкой добавлена:"
     override val pickMusicFolderCancelled = "Папка не выбрана"

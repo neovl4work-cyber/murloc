@@ -26,11 +26,11 @@
 ```bash
 # Desktop (jar) — JDK 17 в JAVA_HOME
 ./gradlew :murloc-core:build
-#   → murloc-core/build/libs/murglar-plugin-local-9.8.jar
+#   → murloc-core/build/libs/murglar-plugin-local-9.9.jar
 
 # Android (apk) — нужен SDK (sdk.dir в local.properties) и keystore
 ./gradlew :murloc-android:clean :murloc-android:build
-#   → murloc-android/build/outputs/apk/release/murglar-plugin-local-9.8.apk
+#   → murloc-android/build/outputs/apk/release/murglar-plugin-local-9.9.apk
 ```
 
 Полезное:
@@ -52,7 +52,7 @@
 
 - **Desktop**: jar → папка плагинов Murglar (подкаталог `plugins` рядом с murglar.exe,
   например `D:\murglar\plugins`), перезапуск плеера.
-- **Android**: `adb install murglar-plugin-local-9.8.apk` (или передать файл на устройство
+- **Android**: `adb install murglar-plugin-local-9.9.apk` (или передать файл на устройство
   и установить) — Murglar находит apk по `NoOpDiscoverableReceiver`.
 
 ## Тестирование без хоста (murloc-cli)
@@ -83,9 +83,9 @@ java -cp "murloc-cli/build/libs/murloc-cli-all.jar;$KOTLIN_STDLIB" com.badmanner
 | `model/playlist/LocalPlaylist.kt` | BasePlaylist для `.m3u` (id = путь файла плейлиста) |
 | `model/event/LocalEvents.kt` | Кастомные действия нод (`CustomAction`-события): SaveDirectoryAsPlaylist, AddTrackToPlaylist(track+файл плейлиста), RemoveTrackFromPlaylist, DeletePlaylist, CreateEmptyPlaylist, PickMusicFolder, OpenPlaylistsFolder (Desktop-only) |
 | `fs/DesktopScanner.kt` | java.nio (только Desktop): сканирование по списку корней (`musicDirs()`), фильтр расширений (mp3/flac/ogg/m4a/wav/aac/opus/wma); payload путей нод = абсолютные пути |
-| `fs/AndroidScanner.kt` | MediaStore через рефлексию (`AndroidHost` → ContentResolver); фильтр по `music_dir` (относительные/абсолютные пути → `relative_path`), пусто — вся библиотека; `hasMultipleRoots = false` |
+| `fs/AndroidScanner.kt` | MediaStore через рефлексию (`AndroidHost` → ContentResolver); фильтр по `music_dir` с учётом тома (`volume_name`): относительные/абсолютные пути и SAF tree-ссылки, пусто — вся библиотека; `hasMultipleRoots = false` |
 | `fs/AndroidHost.kt` | Рефлексивный доступ к контексту хоста (`ActivityThread.currentApplication()`): контекст, ContentResolver, app-internal папка плейлистов |
-| `fs/AndroidFolderPicker.kt` | Клиент SAF-пикера: стартует `FolderPickActivity` из apk плагина рефлексией, поллит `PickResultProvider`, результат мёржит в `music_dir` |
+| `fs/AndroidFolderPicker.kt` | Клиент SAF-пикера: `launchPicker` стартует `FolderPickActivity` из apk плагина рефлексией (асинхронно), `pollPickedFolder` — одноразовое чтение `PickResultProvider`; результат мёржится в `music_dir` при построении дерева |
 | `fs/PlaylistLibrary.kt` | Чтение/запись `.m3u`/`.m3u8` на `java.io.File` (не рекурсивно): `#EXTINF`, относительные пути (`/` и `\`), `content://`-записи через resolver сканера, rename/delete/append, без кэша |
 | `http/StreamServer.kt` | NanoHTTPD на 127.0.0.1, `/file?id=…`, Range (206) для перемотки |
 | `localization/` | Messages EN/RU |
@@ -108,9 +108,12 @@ java -cp "murloc-cli/build/libs/murloc-cli-all.jar;$KOTLIN_STDLIB" com.badmanner
 - **Выбор папки на Android через apk плагина**: код плагина исполняется в процессе хоста,
   стартовать SAF-диалог с результатом из чужого процесса нельзя, поэтому пикер — активность
   в самом apk плагина (`FolderPickActivity`), а результат передаётся через экспортированный
-  `PickResultProvider` (SharedPreferences → ContentProvider), который core поллит после
-  запуска. Путь конвертируется в реальный (`primary:Music` → `/storage/emulated/0/Music`)
-  и фильтрует MediaStore — persistable uri permission не требуется.
+  `PickResultProvider` (SharedPreferences → ContentProvider). Core не блокирует поток хоста:
+  `launchPicker` только открывает диалог, а `pollPickedFolder` (быстрое чтение провайдера)
+  вызывается при построении дерева — это важно, т.к. блокирующий цикл на потоке UI хоста
+  давал ANR в момент выбора папки. Путь конвертируется в реальный
+  (`primary:Music` → `/storage/emulated/0/Music`), SAF-ссылка сохраняется вместе с ним;
+  фильтрация MediaStore идёт по `relative_path` + `volume_name` (нужен только путь).
 - **Кастомные действия нод (events-механика)**: свои `@Model CustomAction`-события
   (`LocalEvents.kt`) объявляются через `EventConfig` в конфигурациях резолвера
   (для Directory-нод — через `UnmappedEntity(type = NODE)`, т.к. у `Directory`/`Root`
@@ -141,6 +144,7 @@ java -cp "murloc-cli/build/libs/murloc-cli-all.jar;$KOTLIN_STDLIB" com.badmanner
 5. **Пикер на Android** — старт `FolderPickActivity` из процесса хоста зависит от хоста
    (рефлексия `ActivityThread`, разрешение старта активности); при блокировке кнопка
    «Выбрать папку…» не сработает, ручной ввод `music_dir` работает в любом случае.
+   Результат подхватывается при следующем обновлении дерева, не мгновенно.
 6. **Rename-преференсы** строятся при открытии настроек: новый плейлист появится в списке
    полей переименования после перезахода в настройки (если хост кэширует список
    преференсов — после перезапуска).

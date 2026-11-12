@@ -214,8 +214,9 @@ class LocalNodeResolver(
         fileNameOf(node.nodeId)
 
 
-    private fun getMusicContent(parentPath: Path, page: Int?, params: Map<String, String>): List<Node> =
-        if (murglar.scanner.hasMultipleRoots) {
+    private fun getMusicContent(parentPath: Path, page: Int?, params: Map<String, String>): List<Node> {
+        murglar.checkPickedMusicFolder()
+        return if (murglar.scanner.hasMultipleRoots) {
             murglar.scanner.listSubdirs(null).map { entry ->
                 val name = rootDisplayName(entry.relPath) ?: entry.name
                 subdirectoryNode("dir-${entry.relPath.urlEncode()}", name, parentPath)
@@ -223,6 +224,7 @@ class LocalNodeResolver(
         } else {
             getContent(null, parentPath)
         }
+    }
 
     private fun getDirectoryContent(parentPath: Path, page: Int?, params: Map<String, String>) =
         getContent(params["dir"]!!.urlDecode(), parentPath)

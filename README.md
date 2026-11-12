@@ -21,8 +21,8 @@ API плагинов: `murglar-gradle-plugin-core/android` **9.0** (jitpack), Ko
 ## Сборка
 
 ```bash
-./gradlew :murloc-core:build      # jar: murloc-core/build/libs/murglar-plugin-local-9.8.jar
-./gradlew :murloc-android:build   # apk: murloc-android/build/outputs/apk/release/murglar-plugin-local-9.8.apk
+./gradlew :murloc-core:build      # jar: murloc-core/build/libs/murglar-plugin-local-9.9.jar
+./gradlew :murloc-android:build   # apk: murloc-android/build/outputs/apk/release/murglar-plugin-local-9.9.apk
 ./gradlew :murloc-cli:build       # тестовый CLI-модуль
 ```
 
@@ -31,12 +31,12 @@ Android SDK и keystore (см. ниже).
 
 ## Установка
 
-**Desktop**: положить `murglar-plugin-local-9.8.jar` в папку плагинов Murglar Desktop
+**Desktop**: положить `murglar-plugin-local-9.9.jar` в папку плагинов Murglar Desktop
 и перезапустить приложение. Папка плагинов — подкаталог `plugins` рядом с исполняемым файлом
 Murglar (в зависимости от того, куда установлен плеер; например, при установке в `D:\murglar`
 путь будет `D:\murglar\plugins`).
 
-**Android**: установить `murglar-plugin-local-9.8.apk` на устройство — Murglar подхватит её
+**Android**: установить `murglar-plugin-local-9.9.apk` на устройство — Murglar подхватит её
 как плагин (как в документации murglar-plugins).
 
 ## Настройки плагина
@@ -47,13 +47,18 @@ Murglar (в зависимости от того, куда установлен 
   к папкам с музыкой, разделённых точкой с запятой (`;`). Старая строка с одним путём —
   валидный частный случай. Несколько папок (Desktop): корень «Моя музыка» показывает
   по ноде на каждую папку (при совпадении имён к имени добавляется родительская папка).
-  На Desktop это абсолютные пути (по умолчанию `~/Music`). На Android — папки относительно
-  корня внутренней памяти (напр. `Music` или `Music/Rock`); принимаются и абсолютные пути
-  вида `/storage/emulated/0/Music`. Пустое значение на Android — вся аудиотека MediaStore.
+  На Desktop это абсолютные пути (по умолчанию `~/Music`). На Android поддерживаются:
+  относительные пути (`Music`, `Music/Rock` — на любой памяти), абсолютные пути
+  (`/storage/emulated/0/Music`, `/storage/<volume>/<path>` для SD-карт) и SAF tree-ссылки
+  (такие же, как у папки загрузчика хоста: `content://...tree/AE7C-9F03:Music/`).
+  Фильтр учитывает том MediaStore (`volume_name`), так что `Music` на внутренней памяти
+  и на SD-карте различимы при указании полного пути. Пустое значение — вся аудиотека.
+  Русские имена и пробелы работают без экранирования.
 - **Choose music folder… / Выбрать папку с музыкой…** (`pick_music_dir`) — выбор папок
   через системный диалог: на Desktop — Swing `JFileChooser` (можно несколько), на Android —
-  системный выбор папки (`ACTION_OPEN_DOCUMENT_TREE`, см. ниже про устройство apk);
-  выбранные папки объединяются с уже сохранёнными без дубликатов.
+  системный выбор папки (`ACTION_OPEN_DOCUMENT_TREE`, см. ниже про устройство apk).
+  На Android диалог открывается асинхронно: выбранная папка добавляется к `music_dir`
+  при следующем обновлении библиотеки (переход в «Моя музыка»).
 - **Playlists folder / Папка плейлистов** (`playlists_dir`, Desktop-only) — папка с
   плейлистами `.m3u`/`.m3u8` (по умолчанию `~/MurglarPlaylists`). На Android плейлисты
   хранятся во внутреннем хранилище приложения хоста (`<filesDir>/murloc-playlists`),
@@ -122,10 +127,12 @@ Murglar (в зависимости от того, куда установлен 
 - Выбор папки на Android: код плагина исполняется в процессе хоста без `Context` в API,
   поэтому пикер живёт в самом apk плагина (отдельно установленное приложение с
   собственным манифестом): `FolderPickActivity` показывает `ACTION_OPEN_DOCUMENT_TREE`,
-  результат (реальный путь, напр. `/storage/emulated/0/Music`) сохраняется и отдаётся
-  через экспортированный `PickResultProvider`; core запускает активность рефлексией
-  (`AndroidFolderPicker`) и поллит провайдер до появления результата. Путь попадает
-  в `music_dir`, сканер фильтрует по нему MediaStore — persistable uri permission не нужен.
+  результат (реальный путь, напр. `/storage/AE7C-9F03/Music`, и исходная SAF-ссылка)
+  сохраняется и отдаётся через экспортированный `PickResultProvider`. Core стартует
+  активность рефлексией (`AndroidFolderPicker.launchPicker`, асинхронно — не блокирует
+  поток хоста) и подхватывает результат одноразовым опросом (`pollPickedFolder`) при
+  построении дерева — путь мёржится в `music_dir`, сканер фильтрует по нему MediaStore.
+  Persistable uri permission берётся на всякий случай, но для фильтрации нужен только путь.
 - Запасной канал воспроизведения — встроенный сервер на NanoHTTPD на `127.0.0.1` со случайным
   портом, стримит файл с поддержкой `Range` (для перемотки). Код плагина исполняется в процессе
   хоста, поэтому INTERNET-permission у хоста уже есть.
@@ -182,6 +189,8 @@ java -cp "murloc-cli/build/libs/murloc-cli-all.jar;$KOTLIN_STDLIB" com.badmanner
 - **Пикер папки на Android**: активность apk плагина стартует из процесса хоста — если хост
   блокирует рефлексию к `ActivityThread` или старт активностей из фона, кнопка «Выбрать
   папку…» не сработает (ошибка в логе); ручной ввод пути в `music_dir` работает в любом случае.
+  Результат подхватывается при следующем обновлении дерева — если папка сразу не появилась,
+  достаточно выйти и зайти заново в «Мою музыку».
 - **Кэширование треков** — функция хоста: Murglar кэширует проигрываемое аудио
   (Настройки → Кэш в плеере). API плагинов не даёт пометить трек «не кэшировать»,
   плагин этим не управляет. На Android файлы по умолчанию идут через `http://127.0.0.1`

@@ -10,7 +10,7 @@ object LocalDefaultMessages : DefaultMessages(), LocalMessages {
     override val musicFolder = "Music folders"
     override val musicFolderMessage = "Absolute paths to music folders, separated by semicolons"
     override val musicFolderMessageAndroid =
-        "Folders relative to internal storage, e.g. Music; Download (leave empty for the whole library)"
+        "Folders relative to any storage (Music), absolute paths (/storage/...) or SAF uris (content://...tree/...); empty = the whole library"
     override val pickMusicFolder = "Choose music folder…"
     override val pickMusicFolderPicked = "Music folder added:"
     override val pickMusicFolderCancelled = "No folder was selected"
