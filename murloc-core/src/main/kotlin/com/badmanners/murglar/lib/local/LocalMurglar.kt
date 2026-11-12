@@ -93,7 +93,7 @@ class LocalMurglar(
                 id = "stream_server",
                 title = messages.useStreamServer,
                 summary = messages.useStreamServerSummary,
-                getter = { preferences.getBoolean(PREF_STREAM_SERVER, false) },
+                getter = { preferences.getBoolean(PREF_STREAM_SERVER, true) },
                 setter = { preferences.setBoolean(PREF_STREAM_SERVER, it) }
             )
         )
@@ -119,7 +119,7 @@ class LocalMurglar(
     }
 
     override suspend fun resolveSourceForUrl(track: LocalTrack, source: Source): Source {
-        val forceServer = preferences.getBoolean(PREF_STREAM_SERVER, false)
+        val forceServer = preferences.getBoolean(PREF_STREAM_SERVER, true)
         if (!forceServer) {
             val directUrl = directUrlFor(track.id)
             if (directUrl != null)
