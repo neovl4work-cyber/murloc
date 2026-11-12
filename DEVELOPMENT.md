@@ -26,11 +26,11 @@
 ```bash
 # Desktop (jar) — JDK 17 в JAVA_HOME
 ./gradlew :murloc-core:build
-#   → murloc-core/build/libs/murglar-plugin-local-9.6.jar
+#   → murloc-core/build/libs/murglar-plugin-local-9.7.jar
 
 # Android (apk) — нужен SDK (sdk.dir в local.properties) и keystore
 ./gradlew :murloc-android:clean :murloc-android:build
-#   → murloc-android/build/outputs/apk/release/murglar-plugin-local-9.6.apk
+#   → murloc-android/build/outputs/apk/release/murglar-plugin-local-9.7.apk
 ```
 
 Полезное:
@@ -48,7 +48,7 @@
 
 - **Desktop**: jar → папка плагинов Murglar (подкаталог `plugins` рядом с murglar.exe,
   например `D:\murglar\plugins`), перезапуск плеера.
-- **Android**: `adb install murglar-plugin-local-9.6.apk` (или передать файл на устройство
+- **Android**: `adb install murglar-plugin-local-9.7.apk` (или передать файл на устройство
   и установить) — Murglar находит apk по `NoOpDiscoverableReceiver`.
 
 ## Тестирование без хоста (murloc-cli)
@@ -77,7 +77,7 @@ java -cp "murloc-cli/build/libs/murloc-cli-all.jar;$KOTLIN_STDLIB" com.badmanner
 | `node/LocalNodeResolver.kt` | BaseNodeResolver: Root `myMusic` + Root `playlists` (Desktop-only) + MappedEntity `*/playlist-*` + Directory `*/dir-*` + Track `*/track-*`; при нескольких корнях `myMusic` показывает ноды-корни (дизамбигуация имён родителем) |
 | `model/track/LocalTrack.kt` | BaseTrack: id = путь/URI файла, «Artist - Title» из имени, папка = альбом; `LocalTrackFactory` — сборка из `AudioFile` |
 | `model/playlist/LocalPlaylist.kt` | BasePlaylist для `.m3u` (id = путь файла плейлиста) |
-| `model/event/LocalEvents.kt` | Кастомные действия нод (`CustomAction`-события): SaveDirectoryAsPlaylist, AddTrackToPlaylist(track+файл плейлиста), RemoveTrackFromPlaylist, DeletePlaylist, CreateEmptyPlaylist, OpenPlaylistsFolder |
+| `model/event/LocalEvents.kt` | Кастомные действия нод (`CustomAction`-события): SaveDirectoryAsPlaylist, AddTrackToPlaylist(track+файл плейлиста), RemoveTrackFromPlaylist, DeletePlaylist, CreateEmptyPlaylist, PickMusicFolder, OpenPlaylistsFolder |
 | `fs/DesktopScanner.kt` | java.nio: сканирование по списку корней (`musicDirs()`), фильтр расширений (mp3/flac/ogg/m4a/wav/aac/opus/wma); payload путей нод = абсолютные пути |
 | `fs/AndroidScanner.kt` | MediaStore через рефлексию (`ActivityThread.currentApplication()` → ContentResolver); `hasMultipleRoots = false` |
 | `fs/PlaylistLibrary.kt` | Чтение `.m3u`/`.m3u8` (не рекурсивно): `#EXTINF`, относительные пути (`/` и `\`), пропуск несуществующих, без кэша |

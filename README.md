@@ -20,8 +20,8 @@ API плагинов: `murglar-gradle-plugin-core/android` **9.0** (jitpack), Ko
 ## Сборка
 
 ```bash
-./gradlew :murloc-core:build      # jar: murloc-core/build/libs/murglar-plugin-local-9.6.jar
-./gradlew :murloc-android:build   # apk: murloc-android/build/outputs/apk/release/murglar-plugin-local-9.6.apk
+./gradlew :murloc-core:build      # jar: murloc-core/build/libs/murglar-plugin-local-9.7.jar
+./gradlew :murloc-android:build   # apk: murloc-android/build/outputs/apk/release/murglar-plugin-local-9.7.apk
 ./gradlew :murloc-cli:build       # тестовый CLI-модуль
 ```
 
@@ -30,12 +30,12 @@ Android SDK и keystore (см. ниже).
 
 ## Установка
 
-**Desktop**: положить `murglar-plugin-local-9.6.jar` в папку плагинов Murglar Desktop
+**Desktop**: положить `murglar-plugin-local-9.7.jar` в папку плагинов Murglar Desktop
 и перезапустить приложение. Папка плагинов — подкаталог `plugins` рядом с исполняемым файлом
 Murglar (в зависимости от того, куда установлен плеер; например, при установке в `D:\murglar`
 путь будет `D:\murglar\plugins`).
 
-**Android**: установить `murglar-plugin-local-9.6.apk` на устройство — Murglar подхватит её
+**Android**: установить `murglar-plugin-local-9.7.apk` на устройство — Murglar подхватит её
 как плагин (как в документации murglar-plugins).
 
 ## Настройки плагина
@@ -89,6 +89,8 @@ Murglar (в зависимости от того, куда установлен 
   создаёт пустой `Новый плейлист (yyyy-MM-dd HH-mm).m3u` (на папках — рядом
   с «Сохранить как плейлист»).
 - **На корневом пункте «Плейлисты»** — «Открыть папку плейлистов» в системном менеджере файлов.
+- **На корневом пункте «Моя музыка»** — «Выбрать папку с музыкой…»: диалог выбора
+  папок (как кнопка в настройках), выбранные папки добавляются к `music_dir`.
 - **В настройках плагина** — «Создать плейлист»: то же самое из экрана настроек сервиса.
 
 Ограничения: механика кастомных действий не позволяет запросить у пользователя текст,

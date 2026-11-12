@@ -53,6 +53,14 @@ object CreateEmptyPlaylist : CustomAction {
 }
 
 /**
+ * Opens a Swing directory picker and merges the selected folders into the `music_dir`
+ * preference (Desktop only).
+ */
+object PickMusicFolder : CustomAction {
+    private fun readResolve(): Any = PickMusicFolder
+}
+
+/**
  * Opens the playlists folder in the system file manager.
  */
 object OpenPlaylistsFolder : CustomAction {

@@ -23,6 +23,7 @@ import com.badmanners.murglar.lib.local.model.event.AddTrackToPlaylist
 import com.badmanners.murglar.lib.local.model.event.CreateEmptyPlaylist
 import com.badmanners.murglar.lib.local.model.event.DeletePlaylist
 import com.badmanners.murglar.lib.local.model.event.OpenPlaylistsFolder
+import com.badmanners.murglar.lib.local.model.event.PickMusicFolder
 import com.badmanners.murglar.lib.local.model.event.RemoveTrackFromPlaylist
 import com.badmanners.murglar.lib.local.model.event.SaveDirectoryAsPlaylist
 import com.badmanners.murglar.lib.local.model.playlist.LocalPlaylist
@@ -124,6 +125,10 @@ class LocalNodeResolver(
                         if (!murglar.isAndroidPlatform)
                             murglar.createPlaylist()
                     },
+                    EventConfig(PickMusicFolder::class) { _, _ ->
+                        if (!murglar.isAndroidPlatform)
+                            murglar.pickMusicDir()
+                    },
                     EventConfig(OpenPlaylistsFolder::class) { _, _ ->
                         if (!murglar.isAndroidPlatform)
                             murglar.openPlaylistsDir()
@@ -155,6 +160,9 @@ class LocalNodeResolver(
                     NamedAction(messages.createPlaylist, CreateEmptyPlaylist),
                     NamedAction(messages.openPlaylistsFolder, OpenPlaylistsFolder)
                 )
+
+            node.nodePath.size == 2 && lastSegment == MY_MUSIC_ROOT_ID ->
+                listOf(NamedAction(messages.pickMusicFolder, PickMusicFolder))
 
             node.nodeType == NODE && lastSegment.startsWith("dir-") -> {
                 val dir = lastSegment.removePrefix("dir-").urlDecode()
@@ -312,5 +320,6 @@ class LocalNodeResolver(
 
     private companion object {
         const val PLAYLISTS_ROOT_ID = "playlists"
+        const val MY_MUSIC_ROOT_ID = "myMusic"
     }
 }

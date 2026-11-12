@@ -374,9 +374,11 @@ class LocalMurglar(
 
     /**
      * Shows a Swing directory picker and merges the selected folders into [PREF_MUSIC_DIR]
-     * (Desktop only; silently does nothing in headless environments).
+     * (Desktop only, used by the ActionPreference from plugin settings and by the
+     * 'Pick music folder' custom node action on the My Music root). Silently does nothing
+     * in headless environments.
      */
-    private fun pickMusicDir() {
+    fun pickMusicDir() {
         if (isAndroidPlatform)
             return
 

@@ -16,6 +16,7 @@ import com.badmanners.murglar.lib.local.LocalMurglar
 import com.badmanners.murglar.lib.local.model.event.AddTrackToPlaylist
 import com.badmanners.murglar.lib.local.model.event.CreateEmptyPlaylist
 import com.badmanners.murglar.lib.local.model.event.DeletePlaylist
+import com.badmanners.murglar.lib.local.model.event.PickMusicFolder
 import com.badmanners.murglar.lib.local.model.event.RemoveTrackFromPlaylist
 import com.badmanners.murglar.lib.local.model.event.SaveDirectoryAsPlaylist
 import com.badmanners.murglar.lib.local.model.track.LocalTrack
@@ -131,6 +132,14 @@ object MurglarCli {
         val rootContent = nodeResolver.getNodeContent(myMusic.nodePath, page = null)
         val playlistsRoot = nodeResolver.getRootNodes(true).first { it.nodePath.last == "playlists" }
 
+        // 0) 'Pick music folder' on the My Music root - in headless CLI it no-ops via log.w,
+        //    the check is only that the action exists and handleEvent doesn't throw.
+        val rootActions = nodeResolver.getNodeCustomActions(myMusic)
+        val pickAction = rootActions.firstOrNull { it.action is PickMusicFolder }
+            ?: error("No pick-music-folder action on the myMusic root node!")
+        nodeResolver.handleEvent(pickAction.action, myMusic, null)
+        println("Pick music folder action: OK (headless no-op)")
+
         // a) 'Save as playlist' + 'Create playlist' on a directory node.
         val dirNode = rootContent.first {
             it.nodePath.last.startsWith("dir-") && it.nodeName == "Artist One - Album Name"
@@ -148,8 +157,8 @@ object MurglarCli {
         println("Save dir as playlist: OK ('$savedName', 1 track)")
 
         // b) 'Create playlist' on the 'Playlists' root node.
-        val rootActions = nodeResolver.getNodeCustomActions(playlistsRoot)
-        val createAction = rootActions.firstOrNull { it.action is CreateEmptyPlaylist }
+        val playlistsRootActions = nodeResolver.getNodeCustomActions(playlistsRoot)
+        val createAction = playlistsRootActions.firstOrNull { it.action is CreateEmptyPlaylist }
             ?: error("No create-playlist action on the playlists root node!")
         nodeResolver.handleEvent(createAction.action, playlistsRoot, null)
         val createdName = murglar.listPlaylists()
