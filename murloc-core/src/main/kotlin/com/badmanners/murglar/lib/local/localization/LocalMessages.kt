@@ -10,8 +10,10 @@ interface LocalMessages : Messages {
     val musicFolderMessage: String
     val musicFolderMessageAndroid: String
     val pickMusicFolder: String
-    val pickMusicFolderPicked: String
-    val pickMusicFolderCancelled: String
+    val allFilesAccess: String
+    val useAsMusicFolder: String
+    val musicFolderSet: String
+    val internalStorage: String
     val playlistsFolder: String
     val playlistsFolderMessage: String
     val openPlaylistsFolder: String

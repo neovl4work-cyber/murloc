@@ -164,77 +164,12 @@ class AndroidScanner(
     }
 
     /**
-     * A music folder root from the `music_dir` preference, normalized for MediaStore matching.
-     *
-     * @property path folder path without leading/trailing `/`, `\\` replaced with `/`,
-     * in `relative_path` terms (e.g. `Music` or `Music/Rock`)
-     * @property volume MediaStore volume name, null = any volume (relative paths
-     * without an explicit volume match folders with the same name on any storage)
-     */
-    private data class MusicRoot(val path: String, val volume: String?)
-
-    /**
-     * Music folder roots from the `music_dir` preference. Supported forms:
-     * - `Music`, `Music/Rock` - relative to any storage root (internal memory, SD card);
-     * - `/storage/emulated/0/Music`, `/sdcard/Music` - absolute paths of the primary storage;
-     * - `/storage/<volume>/<path>` - absolute path of a specific volume (e.g. an SD card);
-     * - SAF tree uris, like the host app stores its download folder
-     *   (`content://com.android.externalstorage.documents/tree/AE7C-9F03:Music/`).
-     *
-     * Unicode names and spaces need no escaping - matching is done on the decoded plain paths.
+     * Music folder roots from the `music_dir` preference (see [MusicRoots] for supported forms).
      * Empty entries are dropped - an empty result means the whole library.
      */
-    private fun normalizeRoots(): List<MusicRoot> = musicFolders()
-        .mapNotNull { parseRoot(it) }
+    private fun normalizeRoots(): List<MusicRoots.Root> = musicFolders()
+        .mapNotNull { MusicRoots.parse(it) }
         .distinct()
-        .toList()
-
-    private fun parseRoot(raw: String): MusicRoot? {
-        var path = raw.trim().replace('\\', '/')
-        if (path.isEmpty())
-            return null
-
-        // SAF tree uri, e.g. content://com.android.externalstorage.documents/tree/AE7C-9F03:Music/
-        if (path.startsWith("content://")) {
-            val documentId = path.substringAfter("/tree/", "").trimEnd('/')
-            if (documentId.isEmpty())
-                return null
-            val volume = documentId.substringBefore(':').let { if (it == "primary") "external" else it }
-            val relative = documentId.substringAfter(':', missingDelimiterValue = "")
-                .replace(':', '/').trim('/')
-            return MusicRoot(relative, volume)
-        }
-
-        path = path.trimEnd('/')
-        return when {
-            path.isEmpty() -> null
-
-            path == "/storage/emulated/0" || path == "/sdcard" ->
-                MusicRoot("", "external")
-
-            path.startsWith("/storage/emulated/0/") ->
-                MusicRoot(path.removePrefix("/storage/emulated/0/"), "external")
-
-            path.startsWith("/sdcard/") ->
-                MusicRoot(path.removePrefix("/sdcard/"), "external")
-
-            path.startsWith("/storage/") -> {
-                val rest = path.removePrefix("/storage/")
-                val volume = rest.substringBefore('/')
-                val relative = rest.substringAfter('/', missingDelimiterValue = "").trim('/')
-                MusicRoot(relative, volume)
-            }
-
-            path.startsWith("/") ->
-                // Unknown absolute form - match by the path tail on any volume.
-                MusicRoot(path.trim('/'), null)
-
-            else ->
-                // Relative path - any volume (a `Music` folder on the internal memory
-                // and on an SD card both match).
-                MusicRoot(path, null)
-        }
-    }
 
     /**
      * The part of the MediaStore `relative_path` [path] of the track from the volume [volume]

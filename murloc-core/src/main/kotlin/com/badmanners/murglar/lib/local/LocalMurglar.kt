@@ -19,12 +19,14 @@ import com.badmanners.murglar.lib.core.preference.SwitchPreference
 import com.badmanners.murglar.lib.core.service.BaseMurglar
 import com.badmanners.murglar.lib.core.utils.MurglarLibUtils.isAndroid
 import com.badmanners.murglar.lib.core.utils.MurglarLibUtils.urlEncode
-import com.badmanners.murglar.lib.local.fs.AndroidFolderPicker
 import com.badmanners.murglar.lib.local.fs.AndroidHost
 import com.badmanners.murglar.lib.local.fs.AndroidScanner
 import com.badmanners.murglar.lib.local.fs.AudioFile
 import com.badmanners.murglar.lib.local.fs.DesktopScanner
+import com.badmanners.murglar.lib.local.fs.DirectAndroidScanner
+import com.badmanners.murglar.lib.local.fs.DirEntry
 import com.badmanners.murglar.lib.local.fs.FileScanner
+import com.badmanners.murglar.lib.local.fs.MusicRoots
 import com.badmanners.murglar.lib.local.fs.PlaylistLibrary
 import com.badmanners.murglar.lib.local.fs.fileNameOf
 import com.badmanners.murglar.lib.local.http.StreamServer
@@ -51,9 +53,11 @@ import javax.swing.JFileChooser
  * files are streamed through the embedded [StreamServer] on `http://127.0.0.1:<random port>`.
  *
  * Several music folders are supported at once ([PREF_MUSIC_DIR] value is a `;` separated list).
- * On Desktop folders are absolute paths scanned through `java.nio.file`, on Android - paths relative
- * to the internal storage root (or absolute) that limit the `MediaStore` library
- * (an empty value means the whole library).
+ * On Desktop folders are absolute paths scanned through `java.nio.file`. On Android there are two
+ * scanners: the direct one walks the device storage through `java.io.File` when the all-files
+ * access (`MANAGE_EXTERNAL_STORAGE`) is granted to the host app (folders are absolute paths,
+ * an empty value means the whole storage - primary + SD cards), and the MediaStore one is used
+ * otherwise (folders are absolute/relative/SAF-uri paths limiting the media library).
  *
  * Playlists are read from `.m3u`/`.m3u8` files: on Desktop - from the [PREF_PLAYLISTS_DIR] folder,
  * on Android - from the app-internal storage of the host app
@@ -81,6 +85,14 @@ class LocalMurglar(
         const val PREF_PLAYLISTS_DIR = "playlists_dir"
         const val PREF_STREAM_SERVER = "stream_server"
 
+        /**
+         * Scanner override for tests: `direct` forces [DirectAndroidScanner] (used by the CLI
+         * to test it on a Desktop). On Android the scanner is chosen automatically:
+         * direct file access when the all-files permission is granted to the host app,
+         * MediaStore otherwise.
+         */
+        const val PREF_SCANNER = "scanner"
+
         private val MESSAGES = mapOf(
             DEFAULT to LocalDefaultMessages,
             RUSSIAN to LocalRussianMessages
@@ -91,8 +103,24 @@ class LocalMurglar(
 
     val isAndroidPlatform = isAndroid()
 
+    /**
+     * True, if the plugin reads the device storage directly through [DirectAndroidScanner]
+     * (all-files access granted to the host app on Android, or the `scanner=direct`
+     * preference override - the latter is for tests).
+     */
+    val isDirectFileAccess: Boolean by lazy {
+        if (isAndroidPlatform)
+            allFilesAccessGranted()
+        else
+            preferences.getString(PREF_SCANNER, "auto") == "direct"
+    }
+
     val scanner: FileScanner by lazy {
-        if (isAndroidPlatform) AndroidScanner(logger, ::rawMusicFolders) else DesktopScanner(logger, ::musicDirs)
+        when {
+            isDirectFileAccess -> DirectAndroidScanner(logger, ::directRoots)
+            isAndroidPlatform -> AndroidScanner(logger, ::rawMusicFolders)
+            else -> DesktopScanner(logger, ::musicDirs)
+        }
     }
 
     val playlistLibrary = PlaylistLibrary(logger, ::playlistsDir) { id ->
@@ -117,18 +145,17 @@ class LocalMurglar(
                 )
             )
 
-            add(
-                ActionPreference(
-                    id = "pick_music_dir",
-                    title = messages.pickMusicFolder,
-                    summary = null,
-                    action = ::pickMusicDir,
-                    needConfirmation = false,
-                    refreshAllAfterInvoke = true
-                )
-            )
-
             if (!isAndroidPlatform) {
+                add(
+                    ActionPreference(
+                        id = "pick_music_dir",
+                        title = messages.pickMusicFolder,
+                        summary = null,
+                        action = ::pickMusicDir,
+                        needConfirmation = false,
+                        refreshAllAfterInvoke = true
+                    )
+                )
                 add(
                     EditPreference(
                         id = "playlists_dir",
@@ -144,6 +171,16 @@ class LocalMurglar(
                         title = messages.openPlaylistsFolder,
                         summary = null,
                         action = ::openPlaylistsFolder,
+                        needConfirmation = false
+                    )
+                )
+            } else {
+                add(
+                    ActionPreference(
+                        id = "all_files_access",
+                        title = messages.allFilesAccess,
+                        summary = null,
+                        action = { openAllFilesAccessSettings() },
                         needConfirmation = false
                     )
                 )
@@ -205,7 +242,8 @@ class LocalMurglar(
             logger.e(TAG, "File scanner is not available - plugin will show an empty library!")
         if (!isAndroidPlatform && musicDirs().isEmpty())
             logger.w(TAG, "No valid music folders in '${preferences.getString(PREF_MUSIC_DIR, defaultMusicDir())}'!")
-        checkPickedMusicFolder()
+        if (isAndroidPlatform && !isDirectFileAccess)
+            logger.w(TAG, "All-files access is not granted to the host app - falling back to the MediaStore scanner!")
     }
 
     override suspend fun resolveSourceForUrl(track: LocalTrack, source: Source): Source {
@@ -412,22 +450,12 @@ class LocalMurglar(
     private fun defaultPlaylistsDir(): String = "${System.getProperty("user.home")}/MurglarPlaylists"
 
     /**
-     * Picks music folders and merges them into [PREF_MUSIC_DIR]:
-     * - on Desktop - shows a Swing directory picker (with a protection from headless environments);
-     * - on Android - launches the system `ACTION_OPEN_DOCUMENT_TREE` picker from the plugin apk
-     *   (see [AndroidFolderPicker]) and returns immediately; the picked folder is merged into
-     *   [PREF_MUSIC_DIR] on the next [checkPickedMusicFolder] call (library tree refresh).
-     *
-     * Used by the ActionPreference from plugin settings and by the 'Pick music folder'
-     * custom node action on the My Music root.
+     * Shows a Swing directory picker and merges the selected folders into [PREF_MUSIC_DIR]
+     * (Desktop only, with a protection from headless environments; used by the ActionPreference
+     * from plugin settings and by the 'Pick music folder' custom node action on the My Music root).
+     * On Android the folder is chosen from the library tree - see [useDirectoryAsMusicRoot].
      */
     fun pickMusicDir() {
-        if (isAndroidPlatform) {
-            // Never block here: the host may invoke the action on its UI thread.
-            AndroidFolderPicker.launchPicker(logger)
-            return
-        }
-
         try {
             if (GraphicsEnvironment.isHeadless()) {
                 logger.w(TAG, "Headless environment - can't show directory picker!")
@@ -456,50 +484,102 @@ class LocalMurglar(
         }
     }
 
-    private fun mergeMusicFolder(picked: String) {
-        val merged = (rawMusicFolders() + picked)
-            .distinct()
+    /**
+     * Makes the directory [dir] (absolute path of the direct scanner, MediaStore relative path
+     * otherwise) the only music folder - the Android way to pick a folder (custom node action
+     * 'Use as music folder' on any directory). No dialogs, no cross-process calls.
+     */
+    fun useDirectoryAsMusicRoot(dir: String): Boolean {
+        val value = if (isDirectFileAccess || dir.startsWith("/")) {
+            dir
+        } else {
+            MusicRoots.parse(dir)?.let(MusicRoots::toAbsolutePath) ?: dir
+        }
 
-        preferences.setString(PREF_MUSIC_DIR, merged.joinToString(";"))
+        preferences.setString(PREF_MUSIC_DIR, value)
+        logger.i(TAG, "Music folder is set to '$value'.")
+        try {
+            notifications.shortNotify("${messages.musicFolderSet} $value")
+        } catch (e: Throwable) {
+            logger.w(TAG, "Can't notify about the new music folder!", e)
+        }
+        return true
     }
 
     /**
-     * Timestamp of the last picker result seen by the plugin (results from previous
-     * sessions are ignored).
+     * Opens the system 'All files access' screen for the host app (Android only,
+     * `MANAGE_EXTERNAL_STORAGE` - the system grants it to the host, not to the plugin apk;
+     * with it the plugin walks the storage directly instead of the MediaStore).
      */
-    private var pickerResultSeenAt = System.currentTimeMillis()
+    fun openAllFilesAccessSettings(): Boolean = try {
+        val context = AndroidHost.context(logger) ?: return false
+
+        val intentClass = Class.forName("android.content.Intent")
+        val uriClass = Class.forName("android.net.Uri")
+
+        val packageName = context.javaClass.getMethod("getPackageName").invoke(context) as String
+        val data = uriClass
+            .getMethod("fromParts", String::class.java, String::class.java, String::class.java)
+            .invoke(null, "package", packageName, null)
+
+        val intent = intentClass
+            .getConstructor(String::class.java)
+            .newInstance("android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION")
+            .also { intent ->
+                intent.javaClass.getMethod("setData", uriClass).invoke(intent, data)
+                intent.javaClass.getMethod("addFlags", Int::class.java).invoke(intent, 0x10000000)
+            }
+
+        context.javaClass.getMethod("startActivity", intentClass).invoke(context, intent)
+        true
+    } catch (e: Throwable) {
+        logger.w(TAG, "Can't open the all-files access settings!", e)
+        false
+    }
 
     /**
-     * Merges a freshly picked music folder into [PREF_MUSIC_DIR] (Android only).
-     *
-     * Non-blocking by design: called when the library tree is built ([onCreate] and the
-     * 'My Music' root content), so the folder picked in the system picker appears in
-     * the library as soon as the user gets back to it. Never throws into the host.
+     * True, if the host app has been granted the all-files access (`Environment
+     * .isExternalStorageManager` since API 30, a readable storage on older versions).
      */
-    fun checkPickedMusicFolder() {
+    private fun allFilesAccessGranted(): Boolean = try {
+        val environment = Class.forName("android.os.Environment")
+        val isManager = runCatching { environment.getMethod("isExternalStorageManager") }.getOrNull()
+        if (isManager != null)
+            isManager.invoke(null) as Boolean
+        else
+            File("/storage/emulated/0").let { it.exists() && it.canRead() }
+    } catch (e: Throwable) {
+        logger.w(TAG, "Can't check the all-files access!", e)
+        false
+    }
+
+    /**
+     * Music roots for [DirectAndroidScanner]: the configured folders (absolute), or the whole
+     * user-visible storage by default - the primary storage plus every other volume
+     * (e.g. SD cards) listed in `/storage`.
+     */
+    private fun directRoots(): List<DirEntry> {
+        val raws = rawMusicFolders()
+        if (raws.isNotEmpty()) {
+            return raws.map { raw ->
+                val trimmed = raw.trim()
+                val absolute = if (File(trimmed).isAbsolute)
+                    trimmed
+                else
+                    MusicRoots.parse(trimmed)?.let(MusicRoots::toAbsolutePath) ?: trimmed
+                DirEntry(absolute, fileNameOf(absolute))
+            }
+        }
+
         if (!isAndroidPlatform)
-            return
+            return listOf(DirEntry(System.getProperty("user.home"), fileNameOf(System.getProperty("user.home"))))
 
-        val result = try {
-            AndroidFolderPicker.pollPickedFolder(logger, pickerResultSeenAt)
-        } catch (e: Throwable) {
-            logger.w(TAG, "Can't poll the folder picker result!", e)
-            null
-        } ?: return
+        val volumes = File("/storage")
+            .listFiles { file -> file.isDirectory && !file.isHidden && file.name != "emulated" && file.name != "self" }
+            .orEmpty()
 
-        pickerResultSeenAt = result.timestamp
-        if (result.path.isEmpty()) {
-            logger.i(TAG, "Folder picker was cancelled.")
-            return
-        }
-
-        mergeMusicFolder(result.path)
-        logger.i(TAG, "Picked music folder '${result.path}' merged into '$PREF_MUSIC_DIR'.")
-        try {
-            notifications.shortNotify("${messages.pickMusicFolderPicked} ${result.path}")
-        } catch (e: Throwable) {
-            logger.w(TAG, "Can't notify about the picked folder!", e)
-        }
+        return listOf(DirEntry("/storage/emulated/0", messages.internalStorage)) +
+            volumes.sortedBy { it.name }.map { DirEntry(it.absolutePath, it.name) }
     }
 
     /**
@@ -513,7 +593,16 @@ class LocalMurglar(
      * Url that the host player can play directly (without the embedded server), if any.
      */
     private fun directUrlFor(id: String): String? = when {
-        isAndroidPlatform -> id.takeIf { it.startsWith("content://") }
+        id.startsWith("content://") -> id
+
+        isAndroidPlatform -> try {
+            // Direct file access: the host can read the file itself.
+            val file = File(id)
+            if (file.isFile) file.toURI().toString() else null
+        } catch (e: Exception) {
+            logger.e(TAG, "Can't build file url for '$id'!", e)
+            null
+        }
 
         else -> try {
             val path = Path.of(id)

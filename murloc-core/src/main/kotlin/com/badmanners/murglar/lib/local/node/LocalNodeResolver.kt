@@ -27,6 +27,7 @@ import com.badmanners.murglar.lib.local.model.event.OpenPlaylistsFolder
 import com.badmanners.murglar.lib.local.model.event.PickMusicFolder
 import com.badmanners.murglar.lib.local.model.event.RemoveTrackFromPlaylist
 import com.badmanners.murglar.lib.local.model.event.SaveDirectoryAsPlaylist
+import com.badmanners.murglar.lib.local.model.event.UseDirectoryAsMusicRoot
 import com.badmanners.murglar.lib.local.model.playlist.LocalPlaylist
 import com.badmanners.murglar.lib.local.model.track.LocalTrack
 import com.badmanners.murglar.lib.local.model.track.LocalTrackFactory
@@ -117,6 +118,9 @@ class LocalNodeResolver(
                     EventConfig(SaveDirectoryAsPlaylist::class) { event, _ ->
                         murglar.saveDirectoryAsPlaylist(event.dir)
                     },
+                    EventConfig(UseDirectoryAsMusicRoot::class) { event, _ ->
+                        murglar.useDirectoryAsMusicRoot(event.dir)
+                    },
                     EventConfig(CreateEmptyPlaylist::class) { _, _ ->
                         murglar.createPlaylist()
                     },
@@ -153,14 +157,18 @@ class LocalNodeResolver(
                 }
 
             node.nodePath.size == 2 && lastSegment == MY_MUSIC_ROOT_ID ->
-                listOf(NamedAction(messages.pickMusicFolder, PickMusicFolder))
+                if (murglar.isAndroidPlatform)
+                    emptyList()
+                else
+                    listOf(NamedAction(messages.pickMusicFolder, PickMusicFolder))
 
             node.nodeType == NODE && lastSegment.startsWith("dir-") -> {
                 val dir = lastSegment.removePrefix("dir-").urlDecode()
-                listOf(
-                    NamedAction(messages.saveDirAsPlaylist, SaveDirectoryAsPlaylist(dir)),
-                    NamedAction(messages.createPlaylist, CreateEmptyPlaylist)
-                )
+                buildList {
+                    add(NamedAction(messages.saveDirAsPlaylist, SaveDirectoryAsPlaylist(dir)))
+                    add(NamedAction(messages.useAsMusicFolder, UseDirectoryAsMusicRoot(dir)))
+                    add(NamedAction(messages.createPlaylist, CreateEmptyPlaylist))
+                }
             }
 
             else -> emptyList()
@@ -214,9 +222,8 @@ class LocalNodeResolver(
         fileNameOf(node.nodeId)
 
 
-    private fun getMusicContent(parentPath: Path, page: Int?, params: Map<String, String>): List<Node> {
-        murglar.checkPickedMusicFolder()
-        return if (murglar.scanner.hasMultipleRoots) {
+    private fun getMusicContent(parentPath: Path, page: Int?, params: Map<String, String>): List<Node> =
+        if (murglar.scanner.hasMultipleRoots) {
             murglar.scanner.listSubdirs(null).map { entry ->
                 val name = rootDisplayName(entry.relPath) ?: entry.name
                 subdirectoryNode("dir-${entry.relPath.urlEncode()}", name, parentPath)
@@ -224,7 +231,6 @@ class LocalNodeResolver(
         } else {
             getContent(null, parentPath)
         }
-    }
 
     private fun getDirectoryContent(parentPath: Path, page: Int?, params: Map<String, String>) =
         getContent(params["dir"]!!.urlDecode(), parentPath)

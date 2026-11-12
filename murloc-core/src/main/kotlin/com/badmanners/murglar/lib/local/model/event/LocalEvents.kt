@@ -22,6 +22,15 @@ data class SaveDirectoryAsPlaylist(
 ) : CustomAction
 
 /**
+ * Makes the directory [dir] (absolute path of the direct scanner, MediaStore relative path
+ * otherwise) the music folder - the Android way to pick a folder.
+ */
+@Model
+data class UseDirectoryAsMusicRoot(
+    val dir: String
+) : CustomAction
+
+/**
  * Appends the track [trackId] (absolute file path) to the playlist [playlistFileName].
  */
 @Model
@@ -55,8 +64,9 @@ object CreateEmptyPlaylist : CustomAction {
 }
 
 /**
- * Opens the system folder picker (Swing chooser on Desktop, `ACTION_OPEN_DOCUMENT_TREE`
- * on Android) and merges the selected folders into the `music_dir` preference.
+ * Opens a Swing directory picker and merges the selected folders into the `music_dir`
+ * preference (Desktop only; on Android a folder is picked with 'Use as music folder'
+ * from the node menu).
  */
 object PickMusicFolder : CustomAction {
     private fun readResolve(): Any = PickMusicFolder
