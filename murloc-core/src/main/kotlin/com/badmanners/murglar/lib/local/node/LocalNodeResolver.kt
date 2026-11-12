@@ -3,22 +3,28 @@ package com.badmanners.murglar.lib.local.node
 import com.badmanners.murglar.lib.core.model.node.Node
 import com.badmanners.murglar.lib.core.model.node.NodeParameters.PagingType.NON_PAGEABLE
 import com.badmanners.murglar.lib.core.model.node.NodeType.NODE
+import com.badmanners.murglar.lib.core.model.node.NodeType.PLAYLIST
+import com.badmanners.murglar.lib.core.model.node.NodeType.TRACK
 import com.badmanners.murglar.lib.core.model.node.Path
 import com.badmanners.murglar.lib.core.node.BaseNodeResolver
 import com.badmanners.murglar.lib.core.node.Directory
+import com.badmanners.murglar.lib.core.node.MappedEntity
 import com.badmanners.murglar.lib.core.node.Root
 import com.badmanners.murglar.lib.core.node.Track
 import com.badmanners.murglar.lib.core.utils.MurglarLibUtils.urlDecode
 import com.badmanners.murglar.lib.core.utils.MurglarLibUtils.urlEncode
 import com.badmanners.murglar.lib.local.LocalMurglar
 import com.badmanners.murglar.lib.local.localization.LocalMessages
+import com.badmanners.murglar.lib.local.model.playlist.LocalPlaylist
 import com.badmanners.murglar.lib.local.model.track.LocalTrack
 import com.badmanners.murglar.lib.local.model.track.LocalTrackFactory
+import java.nio.file.Path as FsPath
 
 
 /**
  * Node resolver that mirrors the music folder structure:
- * `My Music` root -> subfolder nodes -> local file tracks.
+ * `My Music` root -> (music roots, if several) -> subfolder nodes -> local file tracks,
+ * plus a `Playlists` directory with `.m3u`/`.m3u8` playlists (Desktop only).
  *
  * File paths are url-encoded in node path segments, because [Path] can't contain '/' separators.
  */
@@ -37,6 +43,27 @@ class LocalNodeResolver(
             contentNodeType = NODE,
             nodeContentSupplier = ::getMusicContent
         ),
+
+        // The 'Playlists' subdirectory of the root (exact segment 'dir-playlists').
+        // Must be declared before the generic '*/dir-<dir>' configuration to win matching.
+        Directory(
+            pattern = "myMusic/dir-playlists",
+            paging = NON_PAGEABLE,
+            hasSubdirectories = false,
+            contentNodeType = PLAYLIST,
+            nodeSupplier = ::getPlaylistsDirectory,
+            nodeContentSupplier = ::getPlaylistFiles
+        ),
+        MappedEntity(
+            pattern = "*/playlist-<playlistId>",
+            paging = NON_PAGEABLE,
+            hasSubdirectories = false,
+            type = PLAYLIST,
+            contentNodeType = TRACK,
+            nodeSupplier = ::getPlaylist,
+            nodeContentSupplier = ::getPlaylistTracks
+        ),
+
         Directory(
             pattern = "*/dir-<dir>",
             paging = NON_PAGEABLE,
@@ -52,15 +79,29 @@ class LocalNodeResolver(
     )
 
 
-    private fun getMusicContent(parentPath: Path, page: Int?, params: Map<String, String>) =
-        getContent(null, parentPath)
+    private fun getMusicContent(parentPath: Path, page: Int?, params: Map<String, String>): List<Node> {
+        val content = mutableListOf<Node>()
+
+        if (murglar.scanner.hasMultipleRoots) {
+            content += murglar.scanner.listSubdirs(null).map { entry ->
+                val name = rootDisplayName(entry.relPath) ?: entry.name
+                subdirectoryNode("dir-${entry.relPath.urlEncode()}", name, parentPath)
+            }
+        } else {            content += getContent(null, parentPath)
+        }
+
+        if (!murglar.isAndroidPlatform)
+            content += subdirectoryNode(PLAYLISTS_NODE_ID, messages.playlists, parentPath)
+
+        return content
+    }
 
     private fun getDirectoryContent(parentPath: Path, page: Int?, params: Map<String, String>) =
         getContent(params["dir"]!!.urlDecode(), parentPath)
 
     private fun getDirectory(parentPath: Path, params: Map<String, String>): Node {
         val dir = params["dir"]!!.urlDecode()
-        val name = dir.substringAfterLast('/')
+        val name = rootDisplayName(dir) ?: dir.substringAfterLast('/', dir)
         return subdirectoryNode("dir-${dir.urlEncode()}", name, parentPath)
     }
 
@@ -84,8 +125,66 @@ class LocalNodeResolver(
     }
 
 
+    private fun getPlaylistsDirectory(parentPath: Path, params: Map<String, String>): Node =
+        subdirectoryNode(PLAYLISTS_NODE_ID, messages.playlists, parentPath)
+
+    private fun getPlaylistFiles(parentPath: Path, page: Int?, params: Map<String, String>) =
+        murglar.listPlaylists().convertLocalPlaylists(parentPath)
+
+    private fun getPlaylist(parentPath: Path, params: Map<String, String>): Node {
+        val playlistId = params["playlistId"]!!.urlDecode()
+        val playlist = murglar.listPlaylists()
+            .filterIsInstance<LocalPlaylist>()
+            .firstOrNull { it.id == playlistId }
+            ?: error("Playlist not found: '$playlistId'!")
+        return playlist.convertLocalPlaylist(parentPath)
+    }
+
+    private fun getPlaylistTracks(parentPath: Path, page: Int?, params: Map<String, String>): List<Node> {
+        val playlistId = params["playlistId"]!!.urlDecode()
+        return murglar.playlistLibrary.playlistTracks(playlistId).convertLocalTracks(parentPath)
+    }
+
+
+    /**
+     * Display name for a music root directory node (with parent suffix on name collisions),
+     * or null if [dir] is not one of the music roots.
+     */
+    private fun rootDisplayName(dir: String): String? {
+        if (!murglar.scanner.hasMultipleRoots)
+            return null
+
+        val path = runCatching { FsPath.of(dir).toAbsolutePath().normalize() }.getOrNull() ?: return null
+        val roots = murglar.musicDirs().map { it.toAbsolutePath().normalize() }
+        if (path !in roots)
+            return null
+
+        val name = path.fileName?.toString() ?: return null
+        val collision = roots.count { it.fileName == path.fileName } > 1
+        if (!collision)
+            return name
+
+        val parent = path.parent
+        val suffix = parent?.fileName?.toString()
+            ?: parent?.toString()?.replace('\\', '/')?.trimEnd('/')
+            ?: "?"
+        return "$name ($suffix)"
+    }
+
     private fun List<LocalTrack>.convertLocalTracks(parentPath: Path) = convert(::trackNodePath, parentPath)
+
+    private fun List<LocalPlaylist>.convertLocalPlaylists(parentPath: Path) = convert(::playlistNodePath, parentPath)
+
+    private fun LocalPlaylist.convertLocalPlaylist(parentPath: Path) = convert(::playlistNodePath, parentPath)
 
     private fun trackNodePath(parentPath: Path, track: LocalTrack): Path =
         parentPath.child("track-${track.id.urlEncode()}")
+
+    private fun playlistNodePath(parentPath: Path, playlist: LocalPlaylist): Path =
+        parentPath.child("playlist-${playlist.id.urlEncode()}")
+
+
+    private companion object {
+        const val PLAYLISTS_NODE_ID = "dir-playlists"
+    }
 }

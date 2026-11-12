@@ -26,11 +26,11 @@
 ```bash
 # Desktop (jar) — JDK 17 в JAVA_HOME
 ./gradlew :murloc-core:build
-#   → murloc-core/build/libs/murglar-plugin-local-9.2.jar
+#   → murloc-core/build/libs/murglar-plugin-local-9.3.jar
 
 # Android (apk) — нужен SDK (sdk.dir в local.properties) и keystore
 ./gradlew :murloc-android:clean :murloc-android:build
-#   → murloc-android/build/outputs/apk/release/murglar-plugin-local-9.2.apk
+#   → murloc-android/build/outputs/apk/release/murglar-plugin-local-9.3.apk
 ```
 
 Полезное:
@@ -48,7 +48,7 @@
 
 - **Desktop**: jar → папка плагинов Murglar (подкаталог `plugins` рядом с murglar.exe,
   например `D:\murglar\plugins`), перезапуск плеера.
-- **Android**: `adb install murglar-plugin-local-9.2.apk` (или передать файл на устройство
+- **Android**: `adb install murglar-plugin-local-9.3.apk` (или передать файл на устройство
   и установить) — Murglar находит apk по `NoOpDiscoverableReceiver`.
 
 ## Тестирование без хоста (murloc-cli)
@@ -63,19 +63,23 @@ KOTLIN_STDLIB=$(find ~/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/k
 java -cp "murloc-cli/build/libs/murloc-cli-all.jar;$KOTLIN_STDLIB" com.badmanners.murglar.client.cli.MurglarCliKt
 ```
 
-Папка с музыкой задаётся в `preferences.json` (`"music_dir": "..."`), по умолчанию `~/Music`.
-В репозитории лежит тестовый набор `test-music/` (фейковые файлы для проверки дерева).
+Папки с музыкой задаются в `preferences.json` (`"music_dir": "путь1;путь2"` — несколько через
+`;`), папка плейлистов — `"playlists_dir"`. По умолчанию `~/Music` и `~/MurglarPlaylists`.
+В репозитории лежит тестовый набор `test-music/` (фейковые файлы + `playlists/playlist.m3u`
+с относительными/абсолютными/обратно-слэшными путями и одной несуществующей записью).
 
 ## Устройство кода (murloc-core)
 
 | Файл | Роль |
 |---|---|
-| `LocalMurglar.kt` | Точка входа: преференсы, `possibleFormats`, `resolveSourceForUrl`, `getTracksByMediaIds` |
+| `LocalMurglar.kt` | Точка входа: преференсы (platform-зависимые), пикер папок (Swing), `resolveSourceForUrl`, `getTracksByMediaIds` |
 | `login/LocalLoginResolver.kt` | `isLogged = true`, пустые варианты логина → UI логина нет, ноды доступны |
-| `node/LocalNodeResolver.kt` | BaseNodeResolver: Root `myMusic` + Directory `*/dir-*` + Track `*/track-*`; пути файлов URL-кодируются в сегментах путей нод |
-| `model/track/LocalTrack.kt` | BaseTrack: id = путь/URI файла, «Artist - Title» из имени, папка = альбом |
-| `fs/DesktopScanner.kt` | java.nio: сканирование папки, фильтр расширений (mp3/flac/ogg/m4a/wav/aac/opus/wma) |
-| `fs/AndroidScanner.kt` | MediaStore через рефлексию (`ActivityThread.currentApplication()` → ContentResolver) |
+| `node/LocalNodeResolver.kt` | BaseNodeResolver: Root `myMusic` (+ нода `dir-playlists` и MappedEntity `*/playlist-*`) + Directory `*/dir-*` + Track `*/track-*`; при нескольких корнях корень показывает ноды-корни (дизамбигуация имён родителем) |
+| `model/track/LocalTrack.kt` | BaseTrack: id = путь/URI файла, «Artist - Title» из имени, папка = альбом; `LocalTrackFactory` — сборка из `AudioFile` |
+| `model/playlist/LocalPlaylist.kt` | BasePlaylist для `.m3u` (id = путь файла плейлиста) |
+| `fs/DesktopScanner.kt` | java.nio: сканирование по списку корней (`musicDirs()`), фильтр расширений (mp3/flac/ogg/m4a/wav/aac/opus/wma); payload путей нод = абсолютные пути |
+| `fs/AndroidScanner.kt` | MediaStore через рефлексию (`ActivityThread.currentApplication()` → ContentResolver); `hasMultipleRoots = false` |
+| `fs/PlaylistLibrary.kt` | Чтение `.m3u`/`.m3u8` (не рекурсивно): `#EXTINF`, относительные пути (`/` и `\`), пропуск несуществующих, без кэша |
 | `http/StreamServer.kt` | NanoHTTPD на 127.0.0.1, `/file?id=…`, Range (206) для перемотки |
 | `localization/` | Messages EN/RU |
 
@@ -85,8 +89,16 @@ java -cp "murloc-cli/build/libs/murloc-cli-all.jar;$KOTLIN_STDLIB" com.badmanner
   по которому хост будет качать трек. Иерархия: `file://` (desktop) → `content://media/...`
   (android) → встроенный HTTP-сервер (гарантированный fallback, тоггл `stream_server`
   в настройках сервиса).
+- **Несколько папок с музыкой**: `music_dir` хранит список через `;`. Сканер принимает список
+  корней; при >1 корне корень «Моя музыка» показывает по Directory-ноде на каждый корень.
+- **Плейлисты через `.m3u`**: read API `PlaylistsManager` в API 9.0 — пустой stub
+  (`interface PlaylistsManager {}` + TODO), создание плейлистов из UI хоста невозможно,
+  поэтому плейлисты — файлы в `playlists_dir`, нода «Плейлисты» в корне дерева.
+- **AWT/Swing на Android**: классы `java.awt`/`javax.swing` используются только в
+  platform-guarded ветках (`if (isAndroidPlatform) return`), R8 обрабатывается через
+  `-dontwarn java.awt.**` / `-dontwarn javax.swing.**` в `murloc-android/proguard-rules.pro`.
 - Плагин не рисует UI: дерево рендерит хост, настройки описываются через `murglarPreferences`
-  (Edit/Switch Preference), хранятся через `PreferenceMiddleware`.
+  (Edit/Switch/Action Preference), хранятся через `PreferenceMiddleware`.
 
 ## Известные риски (проверяются только на реальном хосте)
 
@@ -96,6 +108,8 @@ java -cp "murloc-cli/build/libs/murloc-cli-all.jar;$KOTLIN_STDLIB" com.badmanner
    сработать в процессе хоста; тогда библиотека пустая (ошибка в логе хоста).
 3. **MediaStore** — список пуст, если у хоста нет разрешения на чтение медиатеки.
 4. **Длительность треков на Desktop** не определяется (нет парсера тегов) — в UI `-1`.
+5. **Плейлисты** — read-only, Desktop-only, формат `.m3u`/`.m3u8`; создание/редактирование
+   из UI хоста невозможно (`PlaylistsManager` в API 9.0 — пустой stub).
 
 ## Публикация
 

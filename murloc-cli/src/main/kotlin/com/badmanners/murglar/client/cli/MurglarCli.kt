@@ -106,11 +106,38 @@ object MurglarCli {
         // 3) Range request against the stream server (seek simulation).
         checkRangeRequest(serverSource.url!!)
 
+        // 4) Playlists: 'My Music' must contain a 'Playlists' dir with .m3u playlists of tracks.
+        checkPlaylists(murglar, nodeResolver)
+
         println()
         println("ALL CHECKS PASSED")
 
         // The embedded stream server runs non-daemon threads - force JVM shutdown for CLI usage.
         System.exit(0)
+    }
+
+    private suspend fun checkPlaylists(murglar: LocalMurglar, nodeResolver: com.badmanners.murglar.lib.core.node.NodeResolver) {
+        val myMusic = nodeResolver.getRootNodes(true).first()
+        val rootContent = nodeResolver.getNodeContent(myMusic.nodePath, page = null)
+
+        val playlistsDir = rootContent.firstOrNull { it.nodePath.last == "dir-playlists" }
+            ?: error("No 'Playlists' node in the root content!")
+        println("Playlists node: '${playlistsDir.nodeName}' (${playlistsDir.nodePath})")
+
+        val playlists = nodeResolver.getNodeContent(playlistsDir.nodePath, page = null)
+        check(playlists.isNotEmpty()) { "No .m3u playlists found in the playlists folder!" }
+        playlists.forEach { println("  [playlist] '${it.nodeName}' (${it.nodeType}, ${it.nodePath})") }
+
+        val playlist = playlists.first()
+        val playlistContent = nodeResolver.getNodeContent(playlist.nodePath, page = null)
+        println("'${playlist.nodeName}' -> ${playlistContent.size} tracks:")
+        playlistContent.forEach { println("  [track] ${it.nodeName}") }
+        check(playlistContent.isNotEmpty()) { "Playlist is empty!" }
+
+        val playlistTrack = playlistContent.first().toTrack<LocalTrack>()
+        val source = murglar.resolveSourceForUrl(playlistTrack, playlistTrack.sources.first())
+        println("Resolved playlist track source: ${source.url}")
+        downloadFirstBytes(playlistTrack, source)
     }
 
     private suspend fun downloadFirstBytes(track: BaseTrack, source: Source) {

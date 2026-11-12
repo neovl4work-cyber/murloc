@@ -33,6 +33,8 @@ class AndroidScanner(
     override val isAvailable: Boolean
         get() = context() != null
 
+    override val hasMultipleRoots = false
+
     override fun listSubdirs(relPath: String?): List<DirEntry> {
         val prefix = when {
             relPath.isNullOrEmpty() -> ""

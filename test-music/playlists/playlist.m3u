@@ -1,0 +1,9 @@
+#EXTM3U
+#EXTINF:180,Artist One - First Song
+../Artist One - First Song.mp3
+#EXTINF:200,Artist Two - Second Song
+D:/!PROJ/MACRO/MURLOC/test-music/Artist Two - Second Song.flac
+#EXTINF:210,Artist One - Album Track
+..\Artist One - Album Name\Artist One - Album Track.mp3
+#nonexistent entry must be skipped
+../No Such Artist - Missing Song.mp3

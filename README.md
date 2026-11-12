@@ -20,8 +20,8 @@ API плагинов: `murglar-gradle-plugin-core/android` **9.0** (jitpack), Ko
 ## Сборка
 
 ```bash
-./gradlew :murloc-core:build      # jar: murloc-core/build/libs/murglar-plugin-local-9.2.jar
-./gradlew :murloc-android:build   # apk: murloc-android/build/outputs/apk/release/murglar-plugin-local-9.2.apk
+./gradlew :murloc-core:build      # jar: murloc-core/build/libs/murglar-plugin-local-9.3.jar
+./gradlew :murloc-android:build   # apk: murloc-android/build/outputs/apk/release/murglar-plugin-local-9.3.apk
 ./gradlew :murloc-cli:build       # тестовый CLI-модуль
 ```
 
@@ -30,25 +30,48 @@ Android SDK и keystore (см. ниже).
 
 ## Установка
 
-**Desktop**: положить `murglar-plugin-local-9.2.jar` в папку плагинов Murglar Desktop
+**Desktop**: положить `murglar-plugin-local-9.3.jar` в папку плагинов Murglar Desktop
 и перезапустить приложение. Папка плагинов — подкаталог `plugins` рядом с исполняемым файлом
 Murglar (в зависимости от того, куда установлен плеер; например, при установке в `D:\murglar`
 путь будет `D:\murglar\plugins`).
 
-**Android**: установить `murglar-plugin-local-9.2.apk` на устройство — Murglar подхватит её
+**Android**: установить `murglar-plugin-local-9.3.apk` на устройство — Murglar подхватит её
 как плагин (как в документации murglar-plugins).
 
 ## Настройки плагина
 
 В настройках сервиса внутри Murglar:
 
-- **Music folder / Папка с музыкой** (`music_dir`) — абсолютный путь к папке с музыкой.
+- **Music folders / Папки с музыкой** (`music_dir`) — один или несколько абсолютных путей
+  к папкам с музыкой, разделённых точкой с запятой (`;`). Старая строка с одним путём —
+  валидный частный случай. Несколько папек: корень «Моя музыка» показывает по ноде на каждую
+  папку (при совпадении имён к имени добавляется родительская папка).
   На Desktop по умолчанию `~/Music`. На Android настройка игнорируется — показывается
   вся аудиотека MediaStore.
+- **Choose music folder… / Выбрать папку с музыкой…** (`pick_music_dir`, Desktop-only) —
+  выбор папок через системный диалог (Swing `JFileChooser`, можно несколько);
+  выбранные папки объединяются с уже сохранёнными без дубликатов.
+- **Playlists folder / Папка плейлистов** (`playlists_dir`, Desktop-only) — папка с
+  плейлистами `.m3u`/`.m3u8` (по умолчанию `~/MurglarPlaylists`).
+- **Open playlists folder / Открыть папку плейлистов** (`open_playlists_dir`, Desktop-only) —
+  открывает папку плейлистов в системном файловом менеджере (создаёт её при необходимости).
 - **Use embedded stream server / Использовать встроенный сервер** (`stream_server`) —
-  если включено, файлы всегда отдаются через встроенный HTTP-сервер (`http://127.0.0.1:<порт>`).
+  если включено (по умолчанию — включено, т.к. гарантированно работает на любой платформе),
+  файлы всегда отдаются через встроенный HTTP-сервер (`http://127.0.0.1:<порт>`).
   Если выключено, используется прямой URL (`file://` на Desktop, `content://media/...` на Android),
   а сервер включается автоматически, только если прямой URL недоступен.
+
+## Плейлисты (.m3u)
+
+Чтение API `PlaylistsManager` в API плагинов 9.0 — пустой stub, поэтому создание плейлистов
+через UI хоста недоступно. Вместо этого плагин читает плейлисты из файлов:
+
+- В корне «Моя музыка» есть нода «Плейлисты» — все файлы `.m3u`/`.m3u8` из `playlists_dir`
+  (без рекурсии) в виде нод-плейлистов.
+- Поддерживаются `#EXTINF:<секунды>,<Artist> - <Title>` и пустые `.m3u` со списком путей.
+- Пути записей относительны файлу плейлиста (разделители `/` и `\`), несуществующие файлы
+  пропускаются, порядок записей сохраняется. Файлы перечитываются при каждом открытии плейлиста.
+- Плейлисты — Desktop-only (на Android ноды нет).
 
 ## Как это работает
 

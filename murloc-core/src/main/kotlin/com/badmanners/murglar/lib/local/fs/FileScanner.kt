@@ -5,9 +5,9 @@ import java.io.InputStream
 
 
 /**
- * Subdirectory of the music root.
+ * Subdirectory of a music root.
  *
- * @property relPath path of the directory relative to the music root, '/' separated
+ * @property relPath absolute path of the directory, used as an url-encoded node path segment payload
  * @property name    last path component, displayed to user
  */
 data class DirEntry(
@@ -43,14 +43,20 @@ interface FileScanner {
     val isAvailable: Boolean
 
     /**
-     * Lists direct subdirectories of the directory with passed relative path
-     * (null or empty - of the music root).
+     * True, if the library consists of several music roots (Desktop with multiple folders).
+     * In that case [listSubdirs] of the root level returns the roots themselves.
+     */
+    val hasMultipleRoots: Boolean
+
+    /**
+     * Lists direct subdirectories of the directory with passed absolute path
+     * (null or empty - of the music root(s)).
      */
     fun listSubdirs(relPath: String?): List<DirEntry>
 
     /**
-     * Lists audio files directly in the directory with passed relative path
-     * (null or empty - the music root itself).
+     * Lists audio files directly in the directory with passed absolute path
+     * (null or empty - of the music root(s)).
      */
     fun listAudio(relPath: String?): List<AudioFile>
 

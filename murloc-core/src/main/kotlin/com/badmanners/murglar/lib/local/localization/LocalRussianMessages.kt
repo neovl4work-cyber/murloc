@@ -6,8 +6,12 @@ import com.badmanners.murglar.lib.core.localization.RussianMessages
 object LocalRussianMessages : RussianMessages(), LocalMessages {
     override val serviceName = "Локальные файлы"
     override val myMusic = "Моя музыка"
-    override val musicFolder = "Папка с музыкой"
-    override val musicFolderMessage = "Абсолютный путь к папке с музыкальными файлами"
+    override val musicFolder = "Папки с музыкой"
+    override val musicFolderMessage = "Абсолютные пути к папкам с музыкой, разделённые точкой с запятой"
+    override val pickMusicFolder = "Выбрать папку с музыкой…"
+    override val playlistsFolder = "Папка плейлистов"
+    override val playlistsFolderMessage = "Абсолютный путь к папке с плейлистами .m3u/.m3u8"
+    override val openPlaylistsFolder = "Открыть папку плейлистов"
     override val useStreamServer = "Использовать встроенный сервер"
     override val useStreamServerSummary =
         "Всегда отдавать файлы через встроенный http-сервер (включите, если прямое воспроизведение файлов не работает)"

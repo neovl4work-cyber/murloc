@@ -7,6 +7,10 @@ interface LocalMessages : Messages {
     val myMusic: String
     val musicFolder: String
     val musicFolderMessage: String
+    val pickMusicFolder: String
+    val playlistsFolder: String
+    val playlistsFolderMessage: String
+    val openPlaylistsFolder: String
     val useStreamServer: String
     val useStreamServerSummary: String
     val loginNotRequired: String

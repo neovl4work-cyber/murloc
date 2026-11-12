@@ -8,49 +8,58 @@ import java.nio.file.Path
 
 
 /**
- * [FileScanner] for Desktop - walks the music folder through `java.nio.file`.
+ * [FileScanner] for Desktop - walks the music folders through `java.nio.file`.
+ *
+ * Supports several music roots at once: the root level lists the roots themselves
+ * (see [hasMultipleRoots]), all deeper levels are plain directories by absolute path.
  */
 class DesktopScanner(
     private val logger: LoggerMiddleware,
-    private val musicDir: () -> Path?
+    private val roots: () -> List<Path>
 ) : FileScanner {
 
     private val audioExtensions = setOf("mp3", "flac", "ogg", "m4a", "wav", "aac", "opus", "wma")
 
     override val isAvailable = true
 
-    private fun base(relPath: String?): Path? {
-        val root = musicDir() ?: return null
-        val base = when {
-            relPath.isNullOrEmpty() -> root
-            else -> root.resolve(relPath).normalize()
-        }
-        return base.takeIf { Files.isDirectory(base) }
-    }
+    override val hasMultipleRoots: Boolean
+        get() = roots().size > 1
 
     override fun listSubdirs(relPath: String?): List<DirEntry> = try {
-        base(relPath)?.let { base ->
-            Files.list(base).use { stream ->
+        // Root level with several music roots lists the roots themselves.
+        if (relPath.isNullOrEmpty() && hasMultipleRoots)
+            return roots().map { root -> DirEntry(root.toString(), dirName(root)) }
+
+        val bases = when {
+            relPath.isNullOrEmpty() -> roots().take(1)
+            else -> listOfNotNull(base(relPath))
+        }
+
+        bases.flatMap { root ->
+            Files.list(root).use { stream ->
                 stream.filter { path -> Files.isDirectory(path) }
-                    .map { path -> DirEntry(path.toRelativeString(), path.fileName.toString()) }
-                    .sorted(compareBy { it.name.lowercase() })
+                    .map { path -> DirEntry(path.toAbsolutePath().normalize().toString(), dirName(path)) }
                     .toList()
             }
-        } ?: emptyList()
+        }.sortedBy { it.name.lowercase() }
     } catch (e: Exception) {
         logger.e(TAG, "Can't list subdirs of '$relPath'!", e)
         emptyList()
     }
 
     override fun listAudio(relPath: String?): List<AudioFile> = try {
-        base(relPath)?.let { base ->
-            Files.list(base).use { stream ->
+        val bases = when {
+            relPath.isNullOrEmpty() -> roots()
+            else -> listOfNotNull(base(relPath))
+        }
+
+        bases.flatMap { root ->
+            Files.list(root).use { stream ->
                 stream.filter { path -> Files.isRegularFile(path) && isAudio(path) }
-                    .map { path -> toAudioFile(path, relPath) }
-                    .sorted(compareBy { it.title.lowercase() })
+                    .map { path -> toAudioFile(path.toAbsolutePath().normalize()) }
                     .toList()
             }
-        } ?: emptyList()
+        }.sortedBy { it.title.lowercase() }
     } catch (e: Exception) {
         logger.e(TAG, "Can't list audio of '$relPath'!", e)
         emptyList()
@@ -59,7 +68,7 @@ class DesktopScanner(
     override fun audioFile(id: String): AudioFile? = try {
         val path = Path.of(id)
         if (Files.isRegularFile(path) && isAudio(path))
-            toAudioFile(path.toAbsolutePath().normalize(), path.parent?.toRelativeString())
+            toAudioFile(path.toAbsolutePath().normalize())
         else
             null
     } catch (e: Exception) {
@@ -75,10 +84,13 @@ class DesktopScanner(
         null
     }
 
+    private fun base(relPath: String): Path? =
+        runCatching { Path.of(relPath) }.getOrNull()?.takeIf { Files.isDirectory(it) }
+
     private fun isAudio(path: Path): Boolean =
         fileExtension(path) in audioExtensions
 
-    private fun toAudioFile(path: Path, parentRel: String?): AudioFile {
+    private fun toAudioFile(path: Path): AudioFile {
         val fileName = path.fileName.toString()
         val name = fileName.substringBeforeLast('.', fileName)
 
@@ -93,25 +105,22 @@ class DesktopScanner(
         }
 
         return AudioFile(
-            id = path.toAbsolutePath().normalize().toString(),
+            id = path.toString(),
             title = title,
             artists = artists,
-            album = parentRel?.takeIf { it.isNotEmpty() }?.substringAfterLast('/')?.takeIf { it.isNotEmpty() },
+            album = path.parent?.let { dirName(it) }?.takeIf { name -> name.isNotEmpty() },
             durationMs = UNKNOWN_DURATION,
             extension = fileExtension(path),
             size = Files.size(path)
         )
     }
 
+    private fun dirName(path: Path): String =
+        path.fileName?.toString() ?: path.toString()
+
     private fun fileExtension(path: Path): String {
         val fileName = path.fileName.toString()
         return fileName.substringAfterLast('.', "").lowercase()
-    }
-
-    private fun Path.toRelativeString(): String {
-        val root = musicDir()?.toAbsolutePath()?.normalize() ?: return toString()
-        val target = toAbsolutePath().normalize()
-        return root.relativize(target).toString().replace('\\', '/')
     }
 
     private companion object {
