@@ -1,1 +1,15 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"/>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name=".FolderPickActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <provider
+            android:name=".SafProvider"
+            android:authorities="com.badmanners.murglar.plugin.local.provider"
+            android:exported="true" />
+    </application>
+</manifest>

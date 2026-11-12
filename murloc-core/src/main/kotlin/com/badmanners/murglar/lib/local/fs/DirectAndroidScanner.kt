@@ -10,10 +10,8 @@ import java.io.InputStream
 /**
  * [FileScanner] that walks the device storage directly through `java.io.File`.
  *
- * Used on Android when the all-files access (`MANAGE_EXTERNAL_STORAGE`) is granted to the host
- * app - no MediaStore, no content resolver, no cross-process calls: the music folder structure
- * is mirrored as is, track ids are real file paths. Also usable on Desktop (via the `scanner`
- * preference override) for testing.
+ * Used by the CLI on Desktop via the `scanner=direct` preference override. Android uses
+ * [SafScanner], because plugin code runs under the host app's storage permissions.
  *
  * Supports several roots at once (internal memory + SD cards): the root level lists the roots
  * themselves (see [hasMultipleRoots]). Hidden directories are skipped.

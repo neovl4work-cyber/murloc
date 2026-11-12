@@ -157,10 +157,7 @@ class LocalNodeResolver(
                 }
 
             node.nodePath.size == 2 && lastSegment == MY_MUSIC_ROOT_ID ->
-                if (murglar.isAndroidPlatform)
-                    emptyList()
-                else
-                    listOf(NamedAction(messages.pickMusicFolder, PickMusicFolder))
+                listOf(NamedAction(messages.pickMusicFolder, PickMusicFolder))
 
             node.nodeType == NODE && lastSegment.startsWith("dir-") -> {
                 val dir = lastSegment.removePrefix("dir-").urlDecode()
@@ -287,8 +284,17 @@ class LocalNodeResolver(
         if (!murglar.scanner.hasMultipleRoots)
             return null
 
+        val entries = murglar.scanner.listSubdirs(null)
+        val root = entries.firstOrNull { it.relPath == dir } ?: return null
+        if (dir.startsWith("content://")) {
+            if (entries.count { it.name == root.name } == 1)
+                return root.name
+            val volume = dir.substringAfter("/tree/", "").substringBefore(':').ifEmpty { "?" }
+            return "${root.name} ($volume)"
+        }
+
         val path = runCatching { File(dir).absoluteFile.normalize() }.getOrNull() ?: return null
-        val roots = murglar.scanner.listSubdirs(null).map { File(it.relPath).absoluteFile.normalize() }
+        val roots = entries.map { File(it.relPath).absoluteFile.normalize() }
         if (path !in roots)
             return null
 

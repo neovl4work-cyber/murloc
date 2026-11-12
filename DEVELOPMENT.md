@@ -26,11 +26,11 @@
 ```bash
 # Desktop (jar) — JDK 17 в JAVA_HOME
 ./gradlew :murloc-core:build
-#   → murloc-core/build/libs/murglar-plugin-local-9.11.jar
+#   → murloc-core/build/libs/murglar-plugin-local-9.12.jar
 
 # Android (apk) — нужен SDK (sdk.dir в local.properties) и keystore
 ./gradlew :murloc-android:clean :murloc-android:build
-#   → murloc-android/build/outputs/apk/release/murglar-plugin-local-9.11.apk
+#   → murloc-android/build/outputs/apk/release/murglar-plugin-local-9.12.apk
 ```
 
 Полезное:
@@ -52,7 +52,7 @@
 
 - **Desktop**: jar → папка плагинов Murglar (подкаталог `plugins` рядом с murglar.exe,
   например `D:\murglar\plugins`), перезапуск плеера.
-- **Android**: `adb install murglar-plugin-local-9.11.apk` (или передать файл на устройство
+- **Android**: `adb install murglar-plugin-local-9.12.apk` (или передать файл на устройство
   и установить) — Murglar находит apk по `NoOpDiscoverableReceiver`.
 
 ## Тестирование без хоста (murloc-cli)
@@ -76,27 +76,33 @@ java -cp "murloc-cli/build/libs/murloc-cli-all.jar;$KOTLIN_STDLIB" com.badmanner
 
 | Файл | Роль |
 |---|---|
-| `LocalMurglar.kt` | Точка входа: преференсы (platform-зависимые, включая per-playlist 'Rename' и all-files action), выбор сканера (Desktop / direct all-files / MediaStore), 'Use as music folder', `resolveSourceForUrl`, `getTracksByMediaIds` |
+| `LocalMurglar.kt` | Точка входа: преференсы (включая per-playlist 'Rename'), выбор сканера (Desktop / SAF), запуск системного picker, 'Use as music folder', `resolveSourceForUrl`, `getTracksByMediaIds` |
 | `login/LocalLoginResolver.kt` | `isLogged = true`, пустые варианты логина → UI логина нет, ноды доступны |
-| `node/LocalNodeResolver.kt` | BaseNodeResolver: Root `myMusic` + Root `playlists` + MappedEntity `*/playlist-*` + Directory `*/dir-*` + Track `*/track-*`; при нескольких корнях (Desktop) `myMusic` показывает ноды-корни (дизамбигуация имён родителем). Никакого `java.nio.file` — минимальный API Android 21 |
+| `node/LocalNodeResolver.kt` | BaseNodeResolver: Root `myMusic` + Root `playlists` + MappedEntity `*/playlist-*` + Directory `*/dir-*` + Track `*/track-*`; при нескольких корнях `myMusic` показывает ноды-корни (дизамбигуация имён родителем/томом). Никакого `java.nio.file` — минимальный API Android 21 |
 | `model/track/LocalTrack.kt` | BaseTrack: id = путь/URI файла, «Artist - Title» из имени, папка = альбом; `LocalTrackFactory` — сборка из `AudioFile` |
 | `model/playlist/LocalPlaylist.kt` | BasePlaylist для `.m3u` (id = путь файла плейлиста) |
-| `model/event/LocalEvents.kt` | Кастомные действия нод (`CustomAction`-события): SaveDirectoryAsPlaylist, UseDirectoryAsMusicRoot(папка корнем music_dir), AddTrackToPlaylist(track+файл плейлиста), RemoveTrackFromPlaylist, DeletePlaylist, CreateEmptyPlaylist, PickMusicFolder (Desktop-only), OpenPlaylistsFolder (Desktop-only) |
+| `model/event/LocalEvents.kt` | Кастомные действия нод (`CustomAction`-события): SaveDirectoryAsPlaylist, UseDirectoryAsMusicRoot(папка корнем music_dir), AddTrackToPlaylist(track+файл плейлиста), RemoveTrackFromPlaylist, DeletePlaylist, CreateEmptyPlaylist, PickMusicFolder (Desktop+Android), OpenPlaylistsFolder (Desktop-only) |
 | `fs/DesktopScanner.kt` | java.nio (только Desktop): сканирование по списку корней (`musicDirs()`), фильтр расширений (mp3/flac/ogg/m4a/wav/aac/opus/wma); payload путей нод = абсолютные пути |
-| `fs/AndroidScanner.kt` | MediaStore через рефлексию (`AndroidHost` → ContentResolver); volume-aware фильтр по `music_dir` (`relative_path` + `volume_name`, корни через `MusicRoots`), пусто — вся библиотека; запасной вариант без all-files доступа; `hasMultipleRoots = false` |
-| `fs/DirectAndroidScanner.kt` | Прямой обход хранилища через `java.io.File` (режим all-files доступа): реальные пути треков, мульти-корни (внутренняя память + тома из `/storage`), скрытые папки пропускаются; тестируется в CLI через `scanner=direct` |
-| `fs/MusicRoots.kt` | Парсер корней `music_dir` для Android: относительные/абсолютные пути, SAF tree-ссылки → (path, volume) + реальный абсолютный путь |
+| `fs/SafScanner.kt` | Android-сканер SAF document URI через рефлексивные вызовы `ContentResolver` к provider apk; список папок/файлов, metadata и read-only потоки; `MANAGE_EXTERNAL_STORAGE` и MediaStore не используются |
+| `fs/AndroidFolderPicker.kt` | Запуск `FolderPickActivity` из apk и polling последнего выбора через `SafProvider`; без блокировки UI-потока |
+| `fs/DirectAndroidScanner.kt` | CLI-only на Desktop (`scanner=direct`): обход тестовых путей через `java.io.File`; на Android не выбирается |
+| `fs/MusicRoots.kt` | Общий разбор SAF tree URI и legacy-путей; из SAF tree получает volume/path для построения document URI |
 | `fs/AndroidHost.kt` | Рефлексивный доступ к контексту хоста (`ActivityThread.currentApplication()`): контекст, ContentResolver, app-internal папка плейлистов |
-| `fs/PlaylistLibrary.kt` | Чтение/запись `.m3u`/`.m3u8` на `java.io.File` (не рекурсивно): `#EXTINF`, относительные пути (`/` и `\`), `content://`-записи через resolver сканера, rename/delete/append, без кэша |
+| `fs/PlaylistLibrary.kt` | Чтение/запись `.m3u`/`.m3u8` на `java.io.File` (не рекурсивно): `#EXTINF`, относительные пути (`/` и `\`), SAF-записи через resolver сканера, rename/delete/append, без кэша |
 | `http/StreamServer.kt` | NanoHTTPD на 127.0.0.1, `/file?id=…`, Range (206) для перемотки |
 | `localization/` | Messages EN/RU |
+
+В `murloc-android` дополнительно находятся `FolderPickActivity` (`ACTION_OPEN_DOCUMENT_TREE`,
+`takePersistableUriPermission`) и `SafProvider`. Provider выполняется в процессе apk, где живёт
+SAF-грант, и обслуживает `last`/`list`/`info`/`openFile`; доступ разрешён только calling package
+`com.badmanners.murglar`.
 
 Ключевые решения:
 
 - **Поддержка локального аудио в MURGLAR-плагине** — `resolveSourceForUrl` возвращает URL,
-  по которому хост будет качать трек. Иерархия: `file://` (desktop) → `content://media/...`
-  (android) → встроенный HTTP-сервер (гарантированный fallback, тоггл `stream_server`
-  в настройках сервиса).
+  по которому хост будет качать трек. На Desktop: встроенный HTTP-сервер по умолчанию либо
+  `file://` при выключенном тоггле. На Android SAF-треки всегда идут через HTTP-сервер:
+  внешний document URI нельзя отдать хосту без его собственного гранта.
 - **Несколько папок с музыкой**: `music_dir` хранит список через `;`. Сканер принимает список
   корней; при >1 корне корень «Моя музыка» показывает по Directory-ноде на каждый корень.
 - **Плейлисты через `.m3u`**: read API `PlaylistsManager` в API 9.0 — пустой stub
@@ -106,17 +112,11 @@ java -cp "murloc-cli/build/libs/murloc-cli-all.jar;$KOTLIN_STDLIB" com.badmanner
 - **`java.io.File` везде в общем коде**: `java.nio.file` недоступен на Android до API 26,
   а minSdk плагина — 21. Desktop-only участки (DesktopScanner, musicDirs) могут использовать
   `java.nio`, всё остальное — только `java.io`.
-- **Прямой доступ к файлам на Android (основной режим)**: плагин просит выдать
-  «Доступ ко всем файлам» приложению Murglar (системный экран открывается рефлексией
-  из процесса хоста; при сбое app-specific intent открывается общий экран) и дальше ходит
-  по `/storage/...` обычным `java.io.File` (`DirectAndroidScanner`) — реальные пути треков,
-  папки как на диске, никакого MediaStore и никаких вызовов в другой процесс. SAF-пикер
-  через отдельную активность apk (v1.8–v1.9) удалён после сообщений о падениях хоста;
-  точная причина без logcat не установлена. Выбор сканера выполняется при создании плагина,
-  поэтому после выдачи разрешения Murglar нужно полностью перезапустить.
-  **Запасной режим** без разрешения — MediaStore-сканер с volume-aware фильтром
-  (`MusicRoots` парсит относительные/абсолютные пути и SAF tree-ссылки с UTF-8 decoding).
-  Поле `music_dir` остаётся доступным для ручного ввода и имеет `refreshAllAfterChange = true`.
+- **SAF на Android**: выбор папки выполняет отдельная activity apk, поэтому постоянный грант
+  принадлежит плагину. Core в процессе Murglar не открывает внешние URI напрямую, а запрашивает
+  `DocumentsContract`-операции у собственного provider. Ручной `music_dir` принимает SAF
+  tree/document URI; кириллица, пробелы и `+` декодируются как UTF-8. Старые `/storage/...`
+  и относительные пути на Android не сканируются. Пустое значение не означает всё хранилище.
 - **Кастомные действия нод (events-механика)**: свои `@Model CustomAction`-события
   (`LocalEvents.kt`) объявляются через `EventConfig` в конфигурациях резолвера
   (для Directory-нод — через `UnmappedEntity(type = NODE)`, т.к. у `Directory`/`Root`
@@ -138,17 +138,18 @@ java -cp "murloc-cli/build/libs/murloc-cli-all.jar;$KOTLIN_STDLIB" com.badmanner
 
 ## Известные риски (проверяются только на реальном хосте)
 
-1. **Приём `file://`/`content://`** — в API `Source.url` заявлены только `http(s)`/`data:`.
+1. **Приём `file://` на Desktop** — в API `Source.url` заявлены только `http(s)`/`data:`.
    Если хост не играет такие URL — включить «Use embedded stream server».
 2. **Android Context через рефлексию** — `ActivityThread.currentApplication()` может не
    сработать в процессе хоста; тогда библиотека пустая (ошибка в логе хоста).
-3. **MediaStore** — список пуст, если у хоста нет разрешения на чтение медиатеки.
-4. **Длительность треков на Desktop** не определяется (нет парсера тегов) — в UI `-1`.
-5. **Прямой доступ к файлам** — зависит от того, объявлено ли разрешение в манифесте
-   и выдано ли оно приложению Murglar. Кнопка открывает app-specific системный экран,
-   а при сбое — общий. После выдачи разрешения Murglar нужно полностью перезапустить:
-   сканер выбирается при создании плагина. Без разрешения — MediaStore-режим (см. риск 3).
-   Разрешение в манифесте apk плагина само по себе хосту доступ не добавляет.
+3. **SAF provider** — доступ ограничен calling package `com.badmanners.murglar`; другое имя
+   пакета хоста приведёт к `SecurityException`. Грант может быть отозван, SD-карта извлечена,
+   а некоторые системные папки запрещены SAF. Сценарии picker/list/open на устройстве ещё
+   требуют ручной проверки.
+4. **Длительность треков** не определяется (нет парсера тегов и SAF metadata длительности) — в UI `-1`.
+5. **HTTP на Android обязателен** — грант принадлежит apk, поэтому выключение `stream_server`
+   не переключает SAF-треки на прямой `content://`. Кэшированием таких потоков управляет хост,
+   API плагина не имеет флага «не кэшировать».
 6. **Rename-преференсы** строятся при открытии настроек: новый плейлист появится в списке
    полей переименования после перезахода в настройки (если хост кэширует список
    преференсов — после перезапуска).

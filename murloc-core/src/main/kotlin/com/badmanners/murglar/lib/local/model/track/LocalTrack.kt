@@ -18,7 +18,7 @@ import com.badmanners.murglar.lib.local.fs.AudioFile
 /**
  * Track of a local audio file.
  *
- * [id] is the canonical file path on Desktop or the `content://media/...` uri on Android.
+ * [id] is the canonical file path on Desktop or a SAF document URI on Android.
  */
 @Model
 class LocalTrack(

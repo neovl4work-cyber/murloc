@@ -19,9 +19,8 @@ import java.io.File
  * On Desktop the playlists dir comes from the `playlists_dir` preference,
  * on Android - from the app-internal storage (see [com.badmanners.murglar.lib.local.LocalMurglar]).
  *
- * Entries are stored as paths relative to the playlist file (Desktop) or as
- * `content://media/...` uris (Android); [uriResolver] resolves such uris back to
- * tracks through the platform [FileScanner].
+ * Entries are stored as paths relative to the playlist file (Desktop) or as SAF document
+ * URIs (Android); [uriResolver] resolves them back to tracks through the platform [FileScanner].
  */
 class PlaylistLibrary(
     private val logger: LoggerMiddleware,
@@ -257,7 +256,7 @@ class PlaylistLibrary(
         durationSec: Long,
         extinfTitle: String?
     ): AudioFile? {
-        // Android entries are content uris of the device media library.
+        // Android entries are SAF document uris owned by the plugin's persisted grant.
         if (rawPath.contains("://"))
             return uriResolver(rawPath)?.takeIf { it.extension in audioExtensions }
 

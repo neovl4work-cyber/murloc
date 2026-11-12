@@ -10,9 +10,8 @@ object LocalRussianMessages : RussianMessages(), LocalMessages {
     override val musicFolder = "Папки с музыкой"
     override val musicFolderMessage = "Абсолютные пути к папкам с музыкой, разделённые точкой с запятой"
     override val musicFolderMessageAndroid =
-        "Ручной ввод: /storage/emulated/0/Music или Music/Рок; несколько папок через ;. Пусто — всё хранилище. Кириллица и пробелы поддерживаются"
+        "SAF-ссылка на папку из системного проводника; можно вставить вручную. Несколько папок через ;. Кириллица и пробелы поддерживаются"
     override val pickMusicFolder = "Выбрать папку с музыкой…"
-    override val allFilesAccess = "Доступ ко всем файлам для плеера (откроет настройки системы)"
     override val useAsMusicFolder = "Использовать как папку с музыкой"
     override val musicFolderSet = "Папка с музыкой:"
     override val internalStorage = "Внутренняя память"

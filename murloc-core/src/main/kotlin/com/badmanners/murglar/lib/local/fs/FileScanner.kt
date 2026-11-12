@@ -19,9 +19,7 @@ data class DirEntry(
 /**
  * Audio file found by [FileScanner], before conversion to a plugin track model.
  *
- * @property id canonical file path on Desktop or `content://media/...` uri on Android
- * @property volume MediaStore volume name on Android (`external` for the primary storage);
- * used together with [album] (MediaStore `relative_path`) to filter music folders
+ * @property id canonical file path on Desktop or SAF document URI on Android
  */
 data class AudioFile(
     val id: String,
@@ -30,8 +28,7 @@ data class AudioFile(
     val album: String?,
     val durationMs: Long,
     val extension: String,
-    val size: Long = Source.UNKNOWN_SIZE,
-    val volume: String = "external"
+    val size: Long = Source.UNKNOWN_SIZE
 )
 
 

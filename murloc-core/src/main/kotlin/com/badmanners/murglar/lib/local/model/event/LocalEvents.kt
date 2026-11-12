@@ -14,7 +14,8 @@ import com.badmanners.murglar.lib.core.utils.contract.Model
  */
 
 /**
- * Saves all audio files directly in the directory [dir] (absolute path) as an `.m3u` playlist.
+ * Saves all audio files directly in the directory [dir] (absolute path or SAF document URI)
+ * as an `.m3u` playlist.
  */
 @Model
 data class SaveDirectoryAsPlaylist(
@@ -22,8 +23,7 @@ data class SaveDirectoryAsPlaylist(
 ) : CustomAction
 
 /**
- * Makes the directory [dir] (absolute path of the direct scanner, MediaStore relative path
- * otherwise) the music folder - the Android way to pick a folder.
+ * Makes the directory [dir] (absolute path or SAF document URI) the music folder.
  */
 @Model
 data class UseDirectoryAsMusicRoot(
@@ -31,7 +31,7 @@ data class UseDirectoryAsMusicRoot(
 ) : CustomAction
 
 /**
- * Appends the track [trackId] (absolute file path) to the playlist [playlistFileName].
+ * Appends the track [trackId] (absolute path or SAF document URI) to [playlistFileName].
  */
 @Model
 data class AddTrackToPlaylist(
@@ -40,7 +40,7 @@ data class AddTrackToPlaylist(
 ) : CustomAction
 
 /**
- * Removes the track [trackId] (absolute file path) from the playlist [playlistFileName].
+ * Removes the track [trackId] (absolute path or SAF document URI) from [playlistFileName].
  */
 @Model
 data class RemoveTrackFromPlaylist(
@@ -64,9 +64,7 @@ object CreateEmptyPlaylist : CustomAction {
 }
 
 /**
- * Opens a Swing directory picker and merges the selected folders into the `music_dir`
- * preference (Desktop only; on Android a folder is picked with 'Use as music folder'
- * from the node menu).
+ * Opens the platform folder picker: Swing on Desktop, the system SAF picker on Android.
  */
 object PickMusicFolder : CustomAction {
     private fun readResolve(): Any = PickMusicFolder

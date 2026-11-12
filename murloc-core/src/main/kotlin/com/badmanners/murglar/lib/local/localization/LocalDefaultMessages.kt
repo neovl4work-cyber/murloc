@@ -10,9 +10,8 @@ object LocalDefaultMessages : DefaultMessages(), LocalMessages {
     override val musicFolder = "Music folders"
     override val musicFolderMessage = "Absolute paths to music folders, separated by semicolons"
     override val musicFolderMessageAndroid =
-        "Manual input: /storage/emulated/0/Music or Music/Rock; separate multiple folders with ;. Empty = the whole storage. Unicode and spaces are supported"
+        "SAF tree URI selected in the system picker or entered manually; separate multiple folders with ;. Unicode and spaces are supported"
     override val pickMusicFolder = "Choose music folder…"
-    override val allFilesAccess = "All-files access for the player (opens system settings)"
     override val useAsMusicFolder = "Use as music folder"
     override val musicFolderSet = "Music folder:"
     override val internalStorage = "Internal storage"
