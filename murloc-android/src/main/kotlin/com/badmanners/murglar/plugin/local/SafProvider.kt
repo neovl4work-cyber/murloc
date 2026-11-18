@@ -87,8 +87,10 @@ class SafProvider : ContentProvider() {
     }
 
     private fun requireHost() {
-        if (callingPackage != HOST_PACKAGE)
-            throw SecurityException("Only $HOST_PACKAGE can use the local music provider")
+        // Murglar встречается под разными пакетами: com.badmanners.murglar, ...murglar2 (клоны)
+        val caller = callingPackage.orEmpty()
+        if (!caller.startsWith(HOST_PACKAGE_PREFIX))
+            throw SecurityException("Only Murglar can use the local music provider (caller: $caller)")
     }
 
     companion object {
@@ -100,6 +102,6 @@ class SafProvider : ContentProvider() {
         const val COLUMN_SIZE = "size"
         const val PARAM_TREE = "tree"
         const val PARAM_DOCUMENT = "document"
-        const val HOST_PACKAGE = "com.badmanners.murglar"
+        const val HOST_PACKAGE_PREFIX = "com.badmanners.murglar"
     }
 }

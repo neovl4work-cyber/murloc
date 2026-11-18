@@ -3,6 +3,7 @@ package com.badmanners.murglar.plugin.local
 import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
+import android.provider.DocumentsContract
 
 class FolderPickActivity : Activity() {
 
@@ -13,6 +14,19 @@ class FolderPickActivity : Activity() {
 
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+        // форсим системный SAF-проводник: на некоторых сборках/эмуляторах интент
+        // перехватывает сторонний файловый менеджер без выбора папки (BlueStacks и т.п.)
+        runCatching { intent.setPackage("com.android.documentsui") }
+        // сразу открываем /Music (внешнее хранилище) — меньше шагов для пользователя;
+        // если папки нет, DocumentsUI сам подменит корень хранилища
+        runCatching {
+            intent.putExtra(
+                "android.provider.extra.INITIAL_URI",
+                DocumentsContract.buildTreeDocumentUri(
+                    "com.android.externalstorage.documents", "primary:Music"
+                )
+            )
+        }
         startActivityForResult(intent, REQUEST_CODE)
     }
 
