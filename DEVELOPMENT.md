@@ -159,3 +159,17 @@ SAF-грант, и обслуживает `last`/`list`/`info`/`openFile`; до�
 - Релизы прикрепляются к git-тегу (`v1.0` → GitHub Release с jar + apk).
 - Версия артефактов: `murglar-plugin-local-<API-major>.<minor>.jar/apk`
   (major берётся из API, minor — `version` в `murglarPlugin {}`).
+
+## Дополнение v1.13 (проверка на BlueStacks + AVD, ноябрь 2026)
+
+- **Murglar бывает установлен как `com.badmanners.murglar2`** (клон/вторая копия) — `SafProvider`
+  больше не сверяет точное имя пакета хоста, а принимает любой с префиксом
+  `com.badmanners.murglar`. Без этого фикса провайдер бросал SecurityException и библиотека
+  была пустой при ЛЮБОМ варианте указания папки.
+- **BlueStacks перехватывает `ACTION_OPEN_DOCUMENT_TREE`** своим файловым менеджером
+  (`com.bluestacks.filemanager`, медиа-браузер без выбора папки) — пикер плагина теперь
+  форсит `setPackage("com.android.documentsui")`.
+- Пикер открывается сразу в `/Music` (`EXTRA_INITIAL_URI`), на стоковых сборках работает.
+- **Автоматизация BlueStacks ограничена**: список папок DocumentsUI не реагирует ни на
+  `input tap`, ни на DPAD (items не кликабельны), root adb отсутствует. SAF-сценарий
+  подтверждать на реальном устройстве или AVD.
