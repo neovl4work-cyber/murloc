@@ -73,23 +73,36 @@ class SafScanner(
 
     private fun roots(): List<DirEntry> = musicFolders().mapNotNull { raw ->
         val value = raw.trim().trimEnd('/')
-        if (!value.startsWith(EXTERNAL_STORAGE_TREE))
-            return@mapNotNull null
+        // принимаем и SAF tree URI, и обычные пути (/sdcard/Music, /storage/<том>/<путь>) —
+        // последние конвертируем в tree URI (работают, только если выдан SAF-грант на эту папку)
+        val treeValue = when {
+            value.startsWith(EXTERNAL_STORAGE_TREE) -> value
+            else -> legacyPathToTree(value) ?: return@mapNotNull null
+        }
 
-        if ("/document/" in value) {
-            val tree = value.substringBefore("/document/")
-            val documentId = decodeDocumentId(value.substringAfter("/document/"))
+        if ("/document/" in treeValue) {
+            val tree = treeValue.substringBefore("/document/")
+            val documentId = decodeDocumentId(treeValue.substringAfter("/document/"))
                 ?: return@mapNotNull null
             DirEntry("$tree/document/$documentId", documentId.substringAfterLast('/').substringAfterLast(':'))
         } else {
-            val root = MusicRoots.parse(value) ?: return@mapNotNull null
+            val root = MusicRoots.parse(treeValue) ?: return@mapNotNull null
             val volume = root.volume ?: return@mapNotNull null
             val documentVolume = if (volume == "external") "primary" else volume
             val documentId = "$documentVolume:${root.path}"
             val name = root.path.substringAfterLast('/').ifEmpty { documentVolume }
-            DirEntry("$value/document/$documentId", name)
+            DirEntry("$treeValue/document/$documentId", name)
         }
     }.distinctBy { it.relPath }
+
+    private fun legacyPathToTree(value: String): String? {
+        val root = MusicRoots.parse(value) ?: return null
+        val volume = root.volume ?: return null
+        val documentVolume = if (volume == "external") "primary" else volume
+        val documentId = if (root.path.isEmpty()) documentVolume else "$documentVolume:${root.path}"
+        val encoded = URLEncoder.encode(documentId, "UTF-8").replace("+", "%20")
+        return EXTERNAL_STORAGE_TREE + encoded
+    }
 
     private fun directories(relPath: String?): List<DirEntry> = when {
         relPath.isNullOrEmpty() -> roots()
@@ -124,6 +137,8 @@ class SafScanner(
             runCatching { cursor.javaClass.getMethod("close").invoke(cursor) }
         }
     } catch (e: Throwable) {
+        if (e is SecurityException || (e.cause is SecurityException))
+            logger.w(TAG, "SAF: нет доступа к '$documentId' — выдайте его через «Выбрать папку с музыкой…» (SAF), затем укажите папку заново.")
         logger.e(TAG, "SAF provider '$action' query failed for '$documentId'!", e)
         emptyList()
     }

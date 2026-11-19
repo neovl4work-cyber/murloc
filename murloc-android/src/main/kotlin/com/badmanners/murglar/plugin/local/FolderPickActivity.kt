@@ -11,14 +11,17 @@ class FolderPickActivity : Activity() {
         super.onCreate(savedInstanceState)
         if (savedInstanceState != null)
             return
+        launchPicker(useSystemUi = true)
+    }
 
+    private fun launchPicker(useSystemUi: Boolean) {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-        // форсим системный SAF-проводник: на некоторых сборках/эмуляторах интент
-        // перехватывает сторонний файловый менеджер без выбора папки (BlueStacks и т.п.)
-        runCatching { intent.setPackage("com.android.documentsui") }
-        // сразу открываем /Music (внешнее хранилище) — меньше шагов для пользователя;
-        // если папки нет, DocumentsUI сам подменит корень хранилища
+        // системный SAF-проводник предпочтителен (BlueStacks и др. перехватывают интент
+        // сторонними менеджерами), но на многих телефонах documentsui нет — тогда
+        // пробуем общий резолв, а при полном провале закрываемся без ошибки
+        if (useSystemUi)
+            runCatching { intent.setPackage("com.android.documentsui") }
         runCatching {
             intent.putExtra(
                 "android.provider.extra.INITIAL_URI",
@@ -27,7 +30,15 @@ class FolderPickActivity : Activity() {
                 )
             )
         }
-        startActivityForResult(intent, REQUEST_CODE)
+        runCatching { startActivityForResult(intent, REQUEST_CODE) }
+            .onFailure {
+                if (useSystemUi)
+                    launchPicker(useSystemUi = false)
+                else {
+                    PickResultStore.save(this, "")
+                    finish()
+                }
+            }
     }
 
     @Deprecated("Plain trampoline activity uses the platform activity-result callback")
