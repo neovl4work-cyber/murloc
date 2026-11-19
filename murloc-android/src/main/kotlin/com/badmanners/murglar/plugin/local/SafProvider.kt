@@ -19,10 +19,10 @@ class SafProvider : ContentProvider() {
         selection: String?,
         selectionArgs: Array<out String>?,
         sortOrder: String?
-    ): Cursor {
+    ): Cursor = try {
         requireHost()
         val context = context ?: throw IllegalStateException("Provider context is unavailable")
-        return when (uri.lastPathSegment) {
+        when (uri.lastPathSegment) {
             "last" -> {
                 val result = PickResultStore.read(context)
                 MatrixCursor(arrayOf(COLUMN_URI, COLUMN_TIMESTAMP)).apply {
@@ -33,17 +33,28 @@ class SafProvider : ContentProvider() {
             "info" -> queryDocuments(uri, children = false)
             else -> throw IllegalArgumentException("Unknown path: $uri")
         }
+    } catch (t: Throwable) {
+        CrashLog.log(context, "SafProvider.query $uri", t)
+        // пустой курсор вместо падения процесса плагина; хост получит пустую библиотеку
+        MatrixCursor(arrayOf(COLUMN_ID, COLUMN_NAME, COLUMN_MIME, COLUMN_SIZE))
     }
 
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
-        requireHost()
-        if (mode != "r")
-            throw FileNotFoundException("Read-only provider")
-        val document = uri.getQueryParameter(PARAM_DOCUMENT)
-            ?: throw FileNotFoundException("Missing document URI")
-        val resolver = context?.contentResolver ?: throw FileNotFoundException("Provider context is unavailable")
-        return resolver.openFileDescriptor(Uri.parse(document), "r")
-            ?: throw FileNotFoundException("Can't open $document")
+        try {
+            requireHost()
+            if (mode != "r")
+                throw FileNotFoundException("Read-only provider")
+            val document = uri.getQueryParameter(PARAM_DOCUMENT)
+                ?: throw FileNotFoundException("Missing document URI")
+            val resolver = context?.contentResolver ?: throw FileNotFoundException("Provider context is unavailable")
+            return resolver.openFileDescriptor(Uri.parse(document), "r")
+                ?: throw FileNotFoundException("Can't open $document")
+        } catch (t: FileNotFoundException) {
+            throw t
+        } catch (t: Throwable) {
+            CrashLog.log(context, "SafProvider.openFile $uri", t)
+            throw FileNotFoundException(t.message)
+        }
     }
 
     override fun getType(uri: Uri): String? = null
