@@ -126,7 +126,7 @@ class LocalMurglar(
                 EditPreference(
                     id = "music_dir",
                     title = messages.musicFolder,
-                    message = if (isAndroidPlatform) messages.musicFolderMessageAndroid else messages.musicFolderMessage,
+                    message = if (isAndroidPlatform) messages.musicFolderMessageAndroid + androidDiagnostics() else messages.musicFolderMessage,
                     getter = { currentMusicDir() },
                     setter = { preferences.setString(PREF_MUSIC_DIR, it) },
                     refreshAllAfterChange = true
@@ -276,6 +276,20 @@ class LocalMurglar(
         .split(';')
         .map { it.trim() }
         .filter { it.isNotEmpty() }
+
+    /** Строка живой диагностики SAF для экрана настроек (Android). */
+    private fun androidDiagnostics(): String {
+        val scanner = scanner
+        if (scanner !is com.badmanners.murglar.lib.local.fs.SafScanner)
+            return ""
+        return try {
+            val lines = scanner.status()
+            "\n\nДиагностика:\n" + lines.joinToString("\n") +
+                "\nscanner: " + if (scanner.isAvailable) "контекст хоста OK" else "НЕТ контекста хоста"
+        } catch (e: Exception) {
+            "\n\nДиагностика недоступна: ${e.javaClass.simpleName}: ${e.message}"
+        }
+    }
 
     /**
      * Music roots, parsed from the `;` separated [PREF_MUSIC_DIR] preference (Desktop only).
@@ -456,7 +470,10 @@ class LocalMurglar(
 
     fun pickMusicDir() {
         if (isAndroidPlatform) {
-            AndroidFolderPicker.launchPicker(logger)
+            val launched = AndroidFolderPicker.launchPicker(logger)
+            if (!launched)
+                try { notifications.shortNotify("Плагин: не удалось открыть выбор папки — детали в журнале плагина") }
+                catch (e: Throwable) { logger.w(TAG, "Can't notify about picker failure!", e) }
             return
         }
 

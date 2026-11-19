@@ -38,9 +38,11 @@ class FolderPickActivity : Activity() {
         }
         runCatching { startActivityForResult(intent, REQUEST_CODE) }
             .onFailure {
-                if (useSystemUi)
+                if (useSystemUi) {
+                    CrashLog.log(this, "launchPicker: documentsui не найден, пробуем общий резолв", it)
                     launchPicker(useSystemUi = false)
-                else {
+                } else {
+                    CrashLog.log(this, "launchPicker: нет activity для ACTION_OPEN_DOCUMENT_TREE", it)
                     PickResultStore.save(this, "")
                     finish()
                 }

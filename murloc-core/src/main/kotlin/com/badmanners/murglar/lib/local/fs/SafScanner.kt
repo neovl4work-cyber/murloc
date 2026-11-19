@@ -116,7 +116,46 @@ class SafScanner(
     }
 
     private fun queryEntries(action: String, tree: String, documentId: String): List<Entry> = try {
-        val resolver = AndroidHost.contentResolver(logger) ?: return emptyList()
+        queryEntriesRaw(action, tree, documentId)
+    } catch (e: Throwable) {
+        if (e is SecurityException || (e.cause is SecurityException))
+            logger.w(TAG, "SAF: нет доступа к '$documentId' — выдайте его через «Выбрать папку с музыкой…» (SAF), затем укажите папку заново.")
+        logger.e(TAG, "SAF provider '$action' query failed for '$documentId'!", e)
+        emptyList()
+    }
+
+    /** Живой статус каждой папки для диагностики (показывается в настройках плагина). */
+    fun status(): List<String> = musicFolders().map { raw ->
+        val value = raw.trim().trimEnd('/')
+        when {
+            value.isEmpty() -> "• (пусто)"
+            else -> {
+                val treeValue = if (value.startsWith(EXTERNAL_STORAGE_TREE)) value
+                    else legacyPathToTree(value)
+                if (treeValue == null) "• '$raw' — путь не распознан"
+                else {
+                    val documentId = if ("/document/" in treeValue) treeValue.substringAfter("/document/")
+                    else MusicRoots.parse(treeValue)?.let { r ->
+                        val v = r.volume?.let { if (it == "external") "primary" else it }
+                        if (v == null) null else if (r.path.isEmpty()) v else "$v:${r.path}"
+                    }
+                    if (documentId == null) "• '$raw' — documentId не построен"
+                    else {
+                        val tree = treeValue.substringBefore("/document/")
+                        runCatching { queryEntriesRaw("info", tree, documentId) }.fold(
+                            onSuccess = { "• '${short(raw)}' — доступ OK (${it.size} элементов)" },
+                            onFailure = { "• '${short(raw)}' — НЕТ ДОСТУПА: ${it.javaClass.simpleName}: ${it.message}" }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun short(s: String) = if (s.length > 48) s.take(48) + "…" else s
+
+    private fun queryEntriesRaw(action: String, tree: String, documentId: String): List<Entry> {
+        val resolver = AndroidHost.contentResolver(logger) ?: throw IllegalStateException("нет ContentResolver хоста")
         val uri = providerUri(action, PARAM_TREE to tree, PARAM_DOCUMENT to documentId)
         val cursor = resolver.javaClass.getMethod(
             "query", androidNetUri(), Array<String>::class.java,
@@ -132,15 +171,10 @@ class SafScanner(
                 val size = cursorLong(cursor, "size")
                 result += Entry(id, name, mime, size)
             }
-            result
+            return result
         } finally {
             runCatching { cursor.javaClass.getMethod("close").invoke(cursor) }
         }
-    } catch (e: Throwable) {
-        if (e is SecurityException || (e.cause is SecurityException))
-            logger.w(TAG, "SAF: нет доступа к '$documentId' — выдайте его через «Выбрать папку с музыкой…» (SAF), затем укажите папку заново.")
-        logger.e(TAG, "SAF provider '$action' query failed for '$documentId'!", e)
-        emptyList()
     }
 
     private fun toAudioFile(parentDocument: String, entry: Entry): AudioFile {
