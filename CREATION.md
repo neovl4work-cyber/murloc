@@ -248,3 +248,25 @@ direct/all-files подход. Возвращён системный SAF-про�
 открывает настоящий DocumentsUI. Список папок DocumentsUI на BlueStacks не реагирует на
 инжектированный ввод (ни тач, ни DPAD) — грант SAF подтверждён только до шага открытия пикера;
 сценарий выбора папки проходит на стоковых сборках/реальном устройстве.
+
+### v1.15 (ноябрь 2026) — корневой баг: kotlin-stdlib не входил в apk плагина
+
+Реальное устройство (Samsung A52, Android 12, Murglar 6.12 как com.badmanners.murglar2)
+вскрыло корень ВСЕХ проблем: **murglar-gradle-plugin исключает модуль kotlin-stdlib
+из зависимостей** (плагин по замыслу исполняется в процессе хоста со stdlib хоста).
+Но activity и provider apk исполняются в СОБСТВЕННОМ процессе плагина (системный
+classloader) → NoClassDefFoundError: kotlin/jvm/internal/Intrinsics при первом же
+вызове → процесс плагина умирал на любом запросе провайдера. Релиз-сборка глотала это
+молча (R8), debug — честно падала с DeadObjectException у вызывающего.
+
+Лечение: `implementation(files("libs/kotlin-stdlib.jar"))` — FILE-зависимость не
+подпадает под module exclusions. Плюс диагностика: CrashLog в getExternalFilesDir
+(Android/data закрыт даже shell-у из-за FUSE), action «crashlog» у SafProvider
+(без проверки вызывающего), allow shell в requireHost, диагностика папок в настройках.
+
+Проверено на устройстве: пикер (fallback на com.google.android.documentsui — Samsung
+вместо com.android.documentsui ставит google-вариант), системный диалог гранта SAF,
+библиотека показывает папки и треки с SD-карты («Music» живёт на «Карте памяти»).
+
+ОСТАЛОСЬ: краш при нажатии воспроизведения (провайдер openFile / StreamServer —
+стектрейс будет при следующем подключении телефона).

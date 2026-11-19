@@ -20,8 +20,20 @@ class SafProvider : ContentProvider() {
         selectionArgs: Array<out String>?,
         sortOrder: String?
     ): Cursor = try {
-        requireHost()
         val context = context ?: throw IllegalStateException("Provider context is unavailable")
+        if (uri.lastPathSegment == "crashlog") {
+            // диагностика: отдаём содержимое murloc-crash.log БЕЗ проверки вызывающего
+            // (Android/data недоступен shell-у из-за FUSE; callingPackage у shell иной)
+            val cursor = MatrixCursor(arrayOf(COLUMN_ID)) // column 'id' reused as line
+            runCatching {
+                val dir = context.getExternalFilesDir(null)
+                val file = java.io.File(dir, "murloc-crash.log")
+                if (file.exists()) file.readLines().forEach { cursor.addRow(arrayOf<Any>(it)) }
+                else cursor.addRow(arrayOf<Any>("(журнал пуст)"))
+            }.onFailure { cursor.addRow(arrayOf<Any>("crashlog error: ${it.message}")) }
+            return cursor
+        }
+        requireHost()
         when (uri.lastPathSegment) {
             "last" -> {
                 val result = PickResultStore.read(context)
@@ -98,9 +110,10 @@ class SafProvider : ContentProvider() {
     }
 
     private fun requireHost() {
-        // Murglar встречается под разными пакетами: com.badmanners.murglar, ...murglar2 (клоны)
+        // Murglar встречается под разными пакетами: com.badmanners.murglar, ...murglar2 (клоны);
+        // com.android.shell — для диагностики через `adb shell content query`
         val caller = callingPackage.orEmpty()
-        if (!caller.startsWith(HOST_PACKAGE_PREFIX))
+        if (!caller.startsWith(HOST_PACKAGE_PREFIX) && caller != "com.android.shell")
             throw SecurityException("Only Murglar can use the local music provider (caller: $caller)")
     }
 

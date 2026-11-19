@@ -53,14 +53,23 @@ class FolderPickActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         try {
+            CrashLog.log(this, "onActivityResult", IllegalStateException("requestCode=$requestCode resultCode=$resultCode data=$data flags=${data?.flags}"))
             if (requestCode != REQUEST_CODE)
                 return
             val treeUri = data?.data
             if (resultCode == RESULT_OK && treeUri != null) {
+                // флаги берём из результата (некоторые прошивки не ставят READ отдельно);
+                // при неудаче всё равно сохраняем URI — транзитный грант плагину уже доступен
+                val flags = (data.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION))
+                    .or(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 val granted = runCatching {
-                    contentResolver.takePersistableUriPermission(treeUri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    contentResolver.takePersistableUriPermission(treeUri, flags)
+                }.onFailure {
+                    CrashLog.log(this, "takePersistableUriPermission failed (uri=$treeUri flags=$flags)", it)
                 }.isSuccess
-                PickResultStore.save(this, if (granted) treeUri.toString() else "")
+                PickResultStore.save(this, treeUri.toString())
+                if (!granted)
+                    CrashLog.log(this, "picker result", IllegalStateException("persistable grant НЕ получен, сохранён транзитный: $treeUri"))
             } else {
                 PickResultStore.save(this, "")
             }
