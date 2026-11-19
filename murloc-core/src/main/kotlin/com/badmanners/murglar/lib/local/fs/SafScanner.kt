@@ -19,7 +19,9 @@ class SafScanner(
         get() = roots().size > 1
 
     override fun listSubdirs(relPath: String?): List<DirEntry> = try {
-        if (relPath.isNullOrEmpty() && hasMultipleRoots) {
+        // DEBUG-BISECT: совсем пустое дерево — если краш останется, дело не в наших нодах
+        if (BISECT_NO_TRACKS) emptyList()
+        else if (relPath.isNullOrEmpty() && hasMultipleRoots) {
             roots()
         } else {
             directories(relPath).flatMap { dir ->
@@ -34,7 +36,9 @@ class SafScanner(
     }
 
     override fun listAudio(relPath: String?): List<AudioFile> = try {
-        directories(relPath).flatMap { dir ->
+        // DEBUG-BISECT: треки скрыты — если краш исчезнет, виновато поле трека
+        if (BISECT_NO_TRACKS) emptyList()
+        else directories(relPath).flatMap { dir ->
             queryChildren(dir.relPath)
                 .filter { it.mime != DIRECTORY_MIME && it.name.substringAfterLast('.', "").lowercase() in AUDIO_EXTENSIONS }
                 .map { entry -> toAudioFile(dir.relPath, entry) }
@@ -185,16 +189,30 @@ class SafScanner(
         } else {
             emptyList<String>() to name
         }
+        val extension = entry.name.substringAfterLast('.', "").lowercase()
         val album = entry.id.substringAfter(':').substringBeforeLast('/', "").substringAfterLast('/').ifEmpty { null }
         return AudioFile(
             id = id,
             title = title,
             artists = artists,
             album = album,
-            durationMs = UNKNOWN_DURATION,
-            extension = entry.name.substringAfterLast('.', "").lowercase(),
+            // реальная длительность обязательна: хост делает coerceIn(0..duration)
+            // и падает при -1 (UNKNOWN_DURATION)
+            durationMs = durationOf(id, extension, entry.size),
+            extension = extension,
             size = entry.size
         )
+    }
+
+    private fun durationOf(id: String, extension: String, size: Long): Long {
+        val opened = open(id) ?: return UNKNOWN_DURATION
+        return try {
+            AudioDuration.detect(opened.first, size, extension)
+        } catch (e: Throwable) {
+            UNKNOWN_DURATION
+        } finally {
+            runCatching { opened.first.close() }
+        }
     }
 
     private fun documentUri(parentDocument: String, childId: String): String {
@@ -251,6 +269,7 @@ class SafScanner(
         const val PARAM_TREE = "tree"
         const val PARAM_DOCUMENT = "document"
         const val UNKNOWN_DURATION = -1L
+        const val BISECT_NO_TRACKS = true
         val AUDIO_EXTENSIONS = setOf("mp3", "flac", "ogg", "m4a", "wav", "aac", "opus", "wma")
     }
 }

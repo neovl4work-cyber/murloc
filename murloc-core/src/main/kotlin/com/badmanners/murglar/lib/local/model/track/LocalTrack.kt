@@ -46,6 +46,7 @@ class LocalTrack(
  * Converts [AudioFile]s, found by scanners, to plugin tracks.
  */
 object LocalTrackFactory {
+    private const val FALLBACK_DURATION_MS = 1_000L
 
     fun create(audio: AudioFile, serviceId: String): LocalTrack {
         val extension = parseExtension(audio.extension)
@@ -75,11 +76,14 @@ object LocalTrackFactory {
             title = audio.title,
             artistNames = audio.artists,
             albumName = audio.album,
-            durationMs = audio.durationMs,
+            // хост падает (coerceIn пустого диапазона) при неположительной
+            // длительности — ставим безопасный минимум, если распознать не смогли
+            durationMs = if (audio.durationMs > 0) audio.durationMs else FALLBACK_DURATION_MS,
             sources = listOf(source),
             mediaId = MediaId.build(serviceId, audio.id)
         )
     }
+
 
     private fun parseExtension(extension: String) = when (extension.lowercase()) {
         "mp3" -> Extension.MP3

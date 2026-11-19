@@ -104,7 +104,11 @@ class DirectAndroidScanner(
             title = title,
             artists = artists,
             album = file.parentFile?.name?.takeIf { it.isNotEmpty() },
-            durationMs = UNKNOWN_DURATION,
+            // реальная длительность обязательна: хост делает coerceIn(0..duration)
+            // и падает при -1
+            durationMs = runCatching {
+                file.inputStream().use { AudioDuration.detect(it, file.length(), file.extension.lowercase()) }
+            }.getOrDefault(UNKNOWN_DURATION),
             extension = file.extension.lowercase(),
             size = file.length()
         )

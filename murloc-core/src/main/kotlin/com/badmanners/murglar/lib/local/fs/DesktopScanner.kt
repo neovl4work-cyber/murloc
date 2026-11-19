@@ -109,11 +109,17 @@ class DesktopScanner(
             title = title,
             artists = artists,
             album = path.parent?.let { dirName(it) }?.takeIf { name -> name.isNotEmpty() },
-            durationMs = UNKNOWN_DURATION,
+            // реальная длительность обязательна: хост делает coerceIn(0..duration)
+            // и падает при -1
+            durationMs = durationOf(path),
             extension = fileExtension(path),
             size = Files.size(path)
         )
     }
+
+    private fun durationOf(path: Path): Long = runCatching {
+        Files.newInputStream(path).use { AudioDuration.detect(it, Files.size(path), fileExtension(path)) }
+    }.getOrDefault(UNKNOWN_DURATION)
 
     private fun dirName(path: Path): String =
         path.fileName?.toString() ?: path.toString()

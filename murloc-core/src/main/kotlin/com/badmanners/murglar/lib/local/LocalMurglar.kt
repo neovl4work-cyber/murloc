@@ -77,7 +77,9 @@ class LocalMurglar(
          * Must be used only for [com.badmanners.murglar.lib.core.utils.MediaId.build],
          * don't pass it to the [BaseMurglar] constructor directly!
          */
-        const val SERVICE_ID = "local"
+        // local2: смена идентификатора инвалидирует кэш хоста (старое «local»)
+        // — хост хранил треки с duration=-1 и падал при их рендере
+        const val SERVICE_ID = "local2"
 
         const val PREF_MUSIC_DIR = "music_dir"
         const val PREF_PLAYLISTS_DIR = "playlists_dir"
@@ -279,16 +281,9 @@ class LocalMurglar(
 
     /** Строка живой диагностики SAF для экрана настроек (Android). */
     private fun androidDiagnostics(): String {
-        val scanner = scanner
-        if (scanner !is com.badmanners.murglar.lib.local.fs.SafScanner)
-            return ""
-        return try {
-            val lines = scanner.status()
-            "\n\nДиагностика:\n" + lines.joinToString("\n") +
-                "\nscanner: " + if (scanner.isAvailable) "контекст хоста OK" else "НЕТ контекста хоста"
-        } catch (e: Exception) {
-            "\n\nДиагностика недоступна: ${e.javaClass.simpleName}: ${e.message}"
-        }
+        // DEBUG-BISECT: диагностика отключена — хост может грузить preferences
+        // при открытии библиотеки, и живой запрос к провайдеру на этом падает
+        return ""
     }
 
     /**
