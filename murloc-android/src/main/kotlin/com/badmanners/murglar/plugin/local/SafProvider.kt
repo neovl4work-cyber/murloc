@@ -43,6 +43,7 @@ class SafProvider : ContentProvider() {
             }
             "list" -> queryDocuments(uri, children = true)
             "info" -> queryDocuments(uri, children = false)
+            "dur" -> queryDurations(uri)
             else -> throw IllegalArgumentException("Unknown path: $uri")
         }
     } catch (t: Throwable) {
@@ -118,6 +119,45 @@ class SafProvider : ContentProvider() {
         }
     }
 
+    /**
+     * Диагностика: для каждого аудиофайла непосредственно в папке [PARAM_DOCUMENT]
+     * считает длительность через AudioDuration напрямую (минуя кэш хоста).
+     * `content query --uri .../dur?tree=<treeURI>&document=<docId>`
+     */
+    private fun queryDurations(uri: Uri): Cursor {
+        val context = context ?: throw IllegalStateException("Provider context is unavailable")
+        val tree = Uri.parse(uri.getQueryParameter(PARAM_TREE)
+            ?: throw IllegalArgumentException("Missing tree URI"))
+        val documentId = uri.getQueryParameter(PARAM_DOCUMENT)
+            ?: throw IllegalArgumentException("Missing document ID")
+        val target = DocumentsContract.buildChildDocumentsUriUsingTree(tree, documentId)
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_SIZE,
+        )
+        val audioExt = setOf("mp3", "flac", "ogg", "oga", "opus", "m4a", "mp4", "aac", "wav", "wave")
+        val rows = mutableListOf<Array<Any>>()
+        context.contentResolver.query(target, projection, null, null, null)?.use { cursor ->
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(1)
+                val ext = name.substringAfterLast('.', "").lowercase()
+                if (ext !in audioExt) continue
+                val size = if (cursor.isNull(2)) 0L else cursor.getLong(2)
+                val docUri = DocumentsContract.buildDocumentUriUsingTree(tree, cursor.getString(0))
+                val duration = runCatching {
+                    context.contentResolver.openInputStream(docUri).use { input ->
+                        com.badmanners.murglar.lib.local.fs.AudioDuration.detect(input ?: return@runCatching -1L, size, ext)
+                    }
+                }.getOrDefault(-2L)
+                rows += arrayOf<Any>(name, ext, size, duration)
+            }
+        }
+        return MatrixCursor(arrayOf(COLUMN_NAME, COLUMN_MIME, COLUMN_SIZE, COLUMN_DURATION)).apply {
+            rows.forEach { addRow(it) }
+        }
+    }
+
     private fun requireHost() {
         // Murglar встречается под разными пакетами: com.badmanners.murglar, ...murglar2 (клоны);
         // com.android.shell — для диагностики через `adb shell content query`.
@@ -135,6 +175,7 @@ class SafProvider : ContentProvider() {
         const val COLUMN_NAME = "name"
         const val COLUMN_MIME = "mime"
         const val COLUMN_SIZE = "size"
+        const val COLUMN_DURATION = "duration"
         const val PARAM_TREE = "tree"
         const val PARAM_DOCUMENT = "document"
         const val HOST_PACKAGE_PREFIX = "com.badmanners.murglar"

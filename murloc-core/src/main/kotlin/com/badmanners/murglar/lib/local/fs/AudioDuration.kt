@@ -147,11 +147,14 @@ object AudioDuration {
         if ((head[5].toInt() and 0x7F) != 0) return -1L // ожидаем STREAMINFO (type 0)
         val info = read(input, 18)
         if (info.size < 18) return -1L
-        // байты 10..17: sampleRate (20 бит, старшие) + totalSamples (36 бит)
+        // байты 10..17: sampleRate (20 бит) + totalSamples (36 бит)
+        // b10-b12: sr high 16 + low 4 (старшая тетрада b12)
+        // b12 low 4 + b13 low 4: sr low 8; total = sr-low-4 (b13) + b14..b17 (32)
         val sr = ((info[10].toLong() and 0xFF) shl 12) or ((info[11].toLong() and 0xFF) shl 4) or
             ((info[12].toLong() and 0xFF) shr 4)
-        val total = ((info[13].toLong() and 0xFF) shl 24) or ((info[14].toLong() and 0xFF) shl 16) or
-            ((info[15].toLong() and 0xFF) shl 8) or (info[16].toLong() and 0xFF)
+        val total = ((info[13].toLong() and 0x0F) shl 32) or ((info[14].toLong() and 0xFF) shl 24) or
+            ((info[15].toLong() and 0xFF) shl 16) or ((info[16].toLong() and 0xFF) shl 8) or
+            (info[17].toLong() and 0xFF)
         if (sr <= 0 || total <= 0) return -1L
         return total * 1000L / sr
     }
