@@ -1,6 +1,8 @@
 package com.badmanners.murglar.lib.local.fs
 
+import java.io.ByteArrayInputStream
 import java.io.InputStream
+import java.io.SequenceInputStream
 
 /**
  * Определение длительности локальных аудиофайлов по заголовкам.
@@ -14,19 +16,42 @@ import java.io.InputStream
  */
 object AudioDuration {
 
-    /** @return длительность в миллисекундах или -1 */
-    fun detect(stream: InputStream, size: Long, extension: String): Long = try {
-        when (extension.lowercase()) {
-            "wav", "wave" -> wav(stream)
-            "mp3" -> mp3(stream, size)
-            "flac" -> flac(stream)
-            "ogg", "oga", "opus" -> ogg(stream, size)
-            "aac" -> aac(stream, size)
-            "m4a", "mp4" -> mp4(stream)
-            else -> -1L
+    /**
+     * Формат определяем по «магическим» байтам, а не по расширению:
+     * Яндекс.Музыка (и др.) сохраняет сырой AAC-поток (ADTS) с расширением
+     * .m4a — по расширению такой файл уходил в mp4-парсер и получал
+     * фолбэк-длительность 1 сек.
+     */
+    fun detect(stream: InputStream, size: Long, extension: String): Long {
+        val head = read(stream, 12)
+        val s = SequenceInputStream(ByteArrayInputStream(head), stream)
+        val tag = if (head.size >= 4) String(head, 0, 4, Charsets.ISO_8859_1) else ""
+        val b0 = head.getOrNull(0)?.toInt()?.and(0xFF) ?: 0
+        val b1 = head.getOrNull(1)?.toInt()?.and(0xFF) ?: 0
+        val sniffed: String? = when {
+            tag == "RIFF" -> "wav"
+            tag == "fLaC" -> "flac"
+            tag == "OggS" -> "ogg"
+            head.size >= 8 && String(head, 4, 4, Charsets.ISO_8859_1) == "ftyp" -> "m4a"
+            // ADTS: 11 бит синхронизации + layer == 00 (биты 1-2 второго байта)
+            b0 == 0xFF && (b1 and 0xF6) == 0xF0 -> "aac"
+            // MPEG-фрейм (MP3 без ID3)
+            b0 == 0xFF && (b1 and 0xE0) == 0xE0 -> "mp3"
+            else -> null
         }
-    } catch (e: Exception) {
-        -1L
+        return try {
+            when (sniffed ?: extension.lowercase()) {
+                "wav", "wave" -> wav(s)
+                "mp3" -> mp3(s, size)
+                "flac" -> flac(s)
+                "ogg", "oga", "opus" -> ogg(s, size)
+                "aac" -> aac(s, size)
+                "m4a", "mp4" -> mp4(s)
+                else -> -1L
+            }
+        } catch (e: Exception) {
+            -1L
+        }
     }
 
     /** WAV/RIFF: длительность = размер data-чанка / байтRate. */
