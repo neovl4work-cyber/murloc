@@ -292,3 +292,14 @@ classloader) → NoClassDefFoundError: kotlin/jvm/internal/Intrinsics при п�
 
 Верифицировано: грант (RESULT_OK, persistable), библиотека (папки, треки,
 длительности 0:05), StreamServer 127.0.0.1 при воспроизведении, 0 крашей.
+
+## Эпилог (20 ноября) — три устройства, полный цикл
+
+Плагин проверен end-to-end на BlueStacks, Xiaomi Redmi Note 8T и Samsung A52
+(OneUI): грант SAF (внутренняя память и SD-карта), библиотека с реальными
+длительностями, воспроизведение через встроенный StreamServer. Помимо кода,
+важные внешние факты: Murglar требует premium для сторонних плагинов
+(PluginLoader: «unofficial and user have no premium»); R8 обязан получать
+`-keep class kotlin.**` и `-dontoptimize` (иначе IllegalAccessError при
+загрузке плагина в процессе хоста); на OneUI активность-трамплин SAF не должна
+иметь noHistory/excludeFromRecents.
