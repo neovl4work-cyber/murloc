@@ -79,7 +79,7 @@ class LocalMurglar(
          */
         // local2: смена идентификатора инвалидирует кэш хоста (старое «local»)
         // — хост хранил треки с duration=-1 и падал при их рендере
-        const val SERVICE_ID = "local2"
+        const val SERVICE_ID = "local"
 
         const val PREF_MUSIC_DIR = "music_dir"
         const val PREF_PLAYLISTS_DIR = "playlists_dir"

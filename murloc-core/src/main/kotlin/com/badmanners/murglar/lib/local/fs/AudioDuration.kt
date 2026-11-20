@@ -20,8 +20,9 @@ object AudioDuration {
             "wav", "wave" -> wav(stream)
             "mp3" -> mp3(stream, size)
             "flac" -> flac(stream)
-            "ogg", "oga", "opus" -> ogg(stream)
-            "m4a", "mp4", "aac" -> mp4(stream)
+            "ogg", "oga", "opus" -> ogg(stream, size)
+            "aac" -> aac(stream, size)
+            "m4a", "mp4" -> mp4(stream)
             else -> -1L
         }
     } catch (e: Exception) {
@@ -131,50 +132,121 @@ object AudioDuration {
     }
 
     /**
-     * OGG: sampleRate — из vorbis-identification заголовка первой страницы,
-     * duration = granulePosition последней страницы / rate.
-     * OPUS: rate фиксирован 48000, granule = samples.
+     * OGG: sampleRate из vorbis-identification первой страницы (OPUS = 48000),
+     * длительность = granulePosition ПОСЛЕДНЕЙ страницы / rate.
+     * Granule читается из хвоста: поток без seek — читаем целиком, держим
+     * последние 64 КБ. Файлы > 64 МБ пропускаем (долго по SAF).
      */
-    private fun ogg(input: InputStream): Long {
+    private fun ogg(input: InputStream, size: Long): Long {
+        if (size <= 0 || size > 64L * 1024 * 1024) return -1L
         val first = read(input, 8 * 1024)
         if (first.size < 58 || String(first, 0, 4, Charsets.ISO_8859_1) != "OggS") return -1L
         val isOpus = String(first, 28, 4, Charsets.ISO_8859_1) == "Opus"
         val isVorbis = String(first, 29, 6, Charsets.ISO_8859_1) == "vorbis"
         if (!isOpus && !isVorbis) return -1L
-        val rate = when {
-            isOpus -> 48000L
-            else -> u32le(first, 40) // vorbis: sampleRate в ident-заголовке
-        }
+        val rate = if (isOpus) 48000L else u32le(first, 40)
         if (rate <= 0) return -1L
-        // granule последней страницы: читаем хвост потока — к сожалению, у нас только
-        // InputStream без seek, поэтому точную длительность OGG здесь не считаем
-        return -1L
+
+        val tailSize = 64 * 1024
+        var tail = ByteArray(0)
+        val buffer = ByteArray(64 * 1024)
+        while (true) {
+            val n = input.read(buffer)
+            if (n < 0) break
+            tail = if (n >= tailSize) buffer.copyOfRange(n - tailSize, n)
+            else (tail + buffer.copyOf(n)).takeLast(tailSize).toByteArray()
+        }
+        var idx = -1
+        for (i in tail.size - 27 downTo 0) {
+            if (tail[i] == 0x4F.toByte() && tail[i + 1] == 0x67.toByte() &&
+                tail[i + 2] == 0x67.toByte() && tail[i + 3] == 0x53.toByte()) { idx = i; break }
+        }
+        if (idx < 0 || idx + 14 > tail.size) return -1L
+        var granule = 0L
+        for (b in 6..13) granule = granule or ((tail[idx + b].toLong() and 0xFF) shl (8 * (b - 6)))
+        if (granule <= 0) return -1L
+        return granule * 1000L / rate
     }
 
-    /** MP4/M4A: ищем бокс mvhd, длительность = duration/timescale (секунды). */
+    /** AAC (ADTS): считаем фреймы по заголовкам 0xFFF; frames * 1024 / sampleRate. */
+    private fun aac(input: InputStream, size: Long): Long {
+        if (size <= 0 || size > 64L * 1024 * 1024) return -1L
+        val rates = intArrayOf(96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000)
+        val head = read(input, 8192)
+        var stream = head
+        var streamPos = 0
+        if (head.size >= 10 && String(head, 0, 3, Charsets.ISO_8859_1) == "ID3") {
+            val len = ((head[6].toInt() and 0x7F) shl 21) or ((head[7].toInt() and 0x7F) shl 14) or
+                ((head[8].toInt() and 0x7F) shl 7) or (head[9].toInt() and 0x7F)
+            val skipTotal = 10 + len
+            if (skipTotal >= head.size) {
+                skipFully(input, (skipTotal - head.size).toLong())
+                stream = ByteArray(0)
+            } else {
+                streamPos = skipTotal
+            }
+        }
+        var rate = 0
+        var frames = 0L
+        var errors = 0
+        while (errors < 64) {
+            if (stream.size - streamPos < 7) {
+                val chunk = read(input, 64 * 1024)
+                if (chunk.isEmpty()) break
+                stream = stream.copyOfRange(streamPos, stream.size) + chunk
+                streamPos = 0
+                if (stream.size < 7) break
+            }
+            val b0 = stream[streamPos].toInt() and 0xFF
+            val b1 = stream[streamPos + 1].toInt() and 0xFF
+            if (b0 == 0xFF && (b1 and 0xF0) == 0xF0) {
+                val rateIdx = (stream[streamPos + 2].toInt() and 0xFF) shr 2 and 0x0F
+                val frameLen = ((stream[streamPos + 3].toInt() and 0x03) shl 11) or
+                    ((stream[streamPos + 4].toInt() and 0xFF) shl 3) or
+                    ((stream[streamPos + 5].toInt() and 0xFF) shr 5)
+                if (rateIdx in 1..12 && frameLen >= 7) {
+                    if (rate == 0) rate = rates[rateIdx - 1]
+                    frames++
+                    errors = 0
+                    if (frameLen <= stream.size - streamPos) {
+                        streamPos += frameLen
+                    } else {
+                        skipFully(input, (frameLen - (stream.size - streamPos)).toLong())
+                        stream = ByteArray(0); streamPos = 0
+                    }
+                    continue
+                }
+            }
+            errors++
+            streamPos++
+        }
+        if (rate <= 0 || frames <= 0) return -1L
+        return frames * 1024L * 1000L / rate
+    }
+
+    /** MP4/M4A: сканируем сигнатуру бокса mvhd (внутри moov) с валидацией полей. */
     private fun mp4(input: InputStream): Long {
-        val window = read(input, 256 * 1024)
-        var i = 0
-        while (i + 32 <= window.size) {
-            val size32 = u32be(window, i)
-            val type = String(window, i + 4, 4, Charsets.ISO_8859_1)
-            if (type == "mvhd") {
-                val version = window[i + 8].toInt()
+        val window = read(input, 4 * 1024 * 1024)
+        var i = 4
+        while (i + 40 <= window.size) {
+            if (window[i] == 0x6D.toByte() && window[i + 1] == 0x76.toByte() &&
+                window[i + 2] == 0x68.toByte() && window[i + 3] == 0x64.toByte()) {
+                val version = window[i + 4].toInt()
                 val timescale: Long
                 val duration: Long
                 if (version == 1) {
-                    if (i + 32 + 12 > window.size) return -1L
-                    timescale = u32be(window, i + 8 + 4 + 8 + 8)
-                    duration = u64be(window, i + 8 + 4 + 8 + 8 + 4)
+                    if (i + 36 > window.size) return -1L
+                    timescale = u32be(window, i + 20)
+                    duration = u64be(window, i + 24)
                 } else {
-                    if (i + 32 > window.size) return -1L
-                    timescale = u32be(window, i + 8 + 4 + 4 + 4)
-                    duration = u32be(window, i + 8 + 4 + 4 + 4 + 4)
+                    if (i + 28 > window.size) return -1L
+                    timescale = u32be(window, i + 16)
+                    duration = u32be(window, i + 20)
                 }
-                if (timescale <= 0) return -1L
-                return duration * 1000L / timescale
+                if (timescale in 1000..10_000_000 && duration > 0)
+                    return duration * 1000L / timescale
             }
-            i += if (size32 >= 8) size32.toInt() else 8
+            i++
         }
         return -1L
     }
