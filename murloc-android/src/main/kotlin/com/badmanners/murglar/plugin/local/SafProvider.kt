@@ -56,12 +56,21 @@ class SafProvider : ContentProvider() {
             requireHost()
             if (mode != "r")
                 throw FileNotFoundException("Read-only provider")
-            val document = uri.getQueryParameter(PARAM_DOCUMENT)
+            val raw = uri.getQueryParameter(PARAM_DOCUMENT)
                 ?: throw FileNotFoundException("Missing document URI")
+            // raw = content://authority/tree/<treeDocId>/document/<docId>
+            // прямое открытие такого составного URI отклоняется провайдером
+            // хранилища — строим канонический document URI через buildDocumentUriUsingTree
+            val treePart = raw.substringBefore("/document/")
+            val docId = raw.substringAfter("/document/", "")
+            if (docId.isEmpty() || treePart == raw)
+                throw FileNotFoundException("Bad document URI: $raw")
+            val document = DocumentsContract.buildDocumentUriUsingTree(Uri.parse(treePart), docId)
             val resolver = context?.contentResolver ?: throw FileNotFoundException("Provider context is unavailable")
-            return resolver.openFileDescriptor(Uri.parse(document), "r")
+            return resolver.openFileDescriptor(document, "r")
                 ?: throw FileNotFoundException("Can't open $document")
         } catch (t: FileNotFoundException) {
+            CrashLog.log(context, "SafProvider.openFile $uri", t)
             throw t
         } catch (t: Throwable) {
             CrashLog.log(context, "SafProvider.openFile $uri", t)
@@ -111,9 +120,11 @@ class SafProvider : ContentProvider() {
 
     private fun requireHost() {
         // Murglar встречается под разными пакетами: com.badmanners.murglar, ...murglar2 (клоны);
-        // com.android.shell — для диагностики через `adb shell content query`
-        val caller = callingPackage.orEmpty()
-        if (!caller.startsWith(HOST_PACKAGE_PREFIX) && caller != "com.android.shell")
+        // com.android.shell — для диагностики через `adb shell content query`.
+        // callingPackage на Android 11 может сам бросать NPE (AppOps.checkPackage
+        // для shell-uid) — обращаемся через runCatching.
+        val caller = runCatching { callingPackage }.getOrNull().orEmpty()
+        if (caller.isNotEmpty() && !caller.startsWith(HOST_PACKAGE_PREFIX) && caller != "com.android.shell")
             throw SecurityException("Only Murglar can use the local music provider (caller: $caller)")
     }
 

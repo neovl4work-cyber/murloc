@@ -270,3 +270,25 @@ classloader) → NoClassDefFoundError: kotlin/jvm/internal/Intrinsics при п�
 
 ОСТАЛОСЬ: краш при нажатии воспроизведения (провайдер openFile / StreamServer —
 стектрейс будет при следующем подключении телефона).
+
+### v1.16 (20 ноября 2026) — рабочий end-to-end на Android
+
+Полный цикл подтверждён на BlueStacks (Android 11) и устранено три блокера:
+
+1. **kotlin-stdlib в apk** (file-зависимость `libs/kotlin-stdlib.jar`) — без неё
+   процесс плагина умирал с NoClassDefFoundError при любом вызове.
+2. **Трамплин SAF без флагов**: noHistory/excludeFromRecents (OneUI/Samsung)
+   убивают активность под пикером → синтетический RESULT_CANCELED. Активность —
+   только exported + Translucent; интент — голый ACTION_OPEN_DOCUMENT_TREE.
+3. **SafProvider.openFile**: прямое открытие составного `tree/.../document/...`
+   URI отклоняется хранилищем → FileNotFound (не работали ни поток
+   воспроизведения, ни определение длительности). Фикс:
+   `DocumentsContract.buildDocumentUriUsingTree`. Плюс `callingPackage` через
+   runCatching (NPE в AppOpsService.checkPackage для shell).
+
+Также: AudioDuration (WAV/MP3/FLAC/M4A) + кламп durationMs ≥ 1 с (хост Murglar
+падает с coerceIn(0..-1) при неположительной длительности), SERVICE_ID local2
+(инвалидация кэша хоста), диагностический action «crashlog» у провайдера.
+
+Верифицировано: грант (RESULT_OK, persistable), библиотека (папки, треки,
+длительности 0:05), StreamServer 127.0.0.1 при воспроизведении, 0 крашей.

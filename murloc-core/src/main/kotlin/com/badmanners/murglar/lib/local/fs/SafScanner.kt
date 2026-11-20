@@ -269,7 +269,7 @@ class SafScanner(
         const val PARAM_TREE = "tree"
         const val PARAM_DOCUMENT = "document"
         const val UNKNOWN_DURATION = -1L
-        const val BISECT_NO_TRACKS = true
+        const val BISECT_NO_TRACKS = false
         val AUDIO_EXTENSIONS = setOf("mp3", "flac", "ogg", "m4a", "wav", "aac", "opus", "wma")
     }
 }
