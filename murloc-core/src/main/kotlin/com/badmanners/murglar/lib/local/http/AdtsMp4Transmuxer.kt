@@ -99,7 +99,7 @@ internal object AdtsMp4Transmuxer {
             val frameLen = ((h[3].toInt() and 0x03) shl 11) or ((h[4].toInt() and 0xFF) shl 3) or ((h[5].toInt() and 0xFF) shr 5)
             if (rateIdx !in 1..12 || frameLen < headerLen + 1) return null
             if (rate == 0) {
-                rate = SAMPLE_RATES[rateIdx - 1]
+                rate = SAMPLE_RATES[rateIdx]
                 channels = if (chanConfig in 1..7) chanConfig else 2
                 val profile = ((h[2].toInt() and 0xC0) shr 6) + 1 // AAC LC = 2
                 firstAsc = (profile shl 11) or (rateIdx shl 7) or (chanConfig shl 3)

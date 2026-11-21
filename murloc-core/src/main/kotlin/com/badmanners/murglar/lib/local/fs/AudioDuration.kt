@@ -232,8 +232,8 @@ object AudioDuration {
                 val frameLen = ((stream[streamPos + 3].toInt() and 0x03) shl 11) or
                     ((stream[streamPos + 4].toInt() and 0xFF) shl 3) or
                     ((stream[streamPos + 5].toInt() and 0xFF) shr 5)
-                if (rateIdx in 1..12 && frameLen >= 7) {
-                    if (rate == 0) rate = rates[rateIdx - 1]
+                if (rateIdx in 0..11 && frameLen >= 7) {
+                    if (rate == 0) rate = rates[rateIdx]
                     frames++
                     errors = 0
                     if (frameLen <= stream.size - streamPos) {
