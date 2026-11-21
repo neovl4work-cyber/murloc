@@ -12,3 +12,9 @@ preferences.json
 Thumbs.db
 .DS_Store
 tmp-test/
+
+# Локальные тестовые артефакты (не для репозитория)
+тест/
+test-music/
+tmp-test/
+*.apk
