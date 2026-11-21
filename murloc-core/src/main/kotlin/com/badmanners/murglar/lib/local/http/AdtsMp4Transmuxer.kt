@@ -95,17 +95,22 @@ internal object AdtsMp4Transmuxer {
             val protectionAbsent = (b1 shr 1) and 1
             val rateIdx = ((h[2].toInt() and 0xFF) shr 2) and 0x0F
             val chanConfig = ((h[2].toInt() and 1) shl 2) or ((h[3].toInt() and 0xC0) shr 6)
-            val headerLen = if (protectionAbsent == 1) 7 else 9
             val frameLen = ((h[3].toInt() and 0x03) shl 11) or ((h[4].toInt() and 0xFF) shl 3) or ((h[5].toInt() and 0xFF) shr 5)
-            if (rateIdx !in 1..12 || frameLen < headerLen + 1) return null
+            if (rateIdx !in 1..12 || frameLen < 10) return null
             if (rate == 0) {
                 rate = SAMPLE_RATES[rateIdx]
                 channels = if (chanConfig in 1..7) chanConfig else 2
                 val profile = ((h[2].toInt() and 0xC0) shr 6) + 1 // AAC LC = 2
                 firstAsc = (profile shl 11) or (rateIdx shl 7) or (chanConfig shl 3)
             }
-            offsets.add(input.position + (headerLen - 7))
-            sizes.add(frameLen - headerLen)
+            // ВАЖНО: вырезаем ТОЛЬКО 7 байт заголовка. Даже при protection_absent=0
+            // (формально «CRC присутствует») в этих потоках два следующих байта — часть
+            // аудиоданных: верифицировано на устройстве (вариант с вырезанием CRC давал
+            // тишину — decoderErr 0x0005 на каждом фрейме; вариант «7 байт» играет).
+            // Поведение совпадает с ExoPlayer AdtsReader (сырой ADTS через тот же
+            // декодер звучит).
+            offsets.add(input.position)
+            sizes.add(frameLen - 7)
             val skipped = skipCounted(input, (frameLen - 7).toLong())
             if (skipped < frameLen - 7) {
                 // обрезанный фрейм в конце файла — не включаем
@@ -157,7 +162,8 @@ internal object AdtsMp4Transmuxer {
         val smhd = box("smhd", u16(0), u16(0))
         val dinf = box("dinf", box("dref", u32(1), fullBox("url ", 0, 1)))
 
-        val stsd = fullBox("stsd", 0, 0, u32(1), mp4aSampleEntry(rate, channels, asc))
+        val avgBitrate = (totalPayload * 8L * rate / (frames * 1024L)).toInt().coerceAtLeast(1)
+        val stsd = fullBox("stsd", 0, 0, u32(1), mp4aSampleEntry(rate, channels, asc, avgBitrate))
         val stts = fullBox("stts", 0, 0, u32(1), u32(frames), u32(1024))
         val stsc = fullBox("stsc", 0, 0, u32(1), u32(1), u32(frames), u32(1))
         val stszBody = ByteArray(8 + 4 * frames)
@@ -185,26 +191,27 @@ internal object AdtsMp4Transmuxer {
         return ftyp + moov + mdatHeader
     }
 
-    /** AudioSampleEntry 'mp4a' с ESDescriptor (AAC) */
-    private fun mp4aSampleEntry(rate: Int, channels: Int, asc: Int): ByteArray {
-        val esds = fullBox("esds", 0, 0, esDescriptor(asc))
+    /** AudioSampleEntry mp4a с ESDescriptor (AAC) */
+    private fun mp4aSampleEntry(rate: Int, channels: Int, asc: Int, avgBitrate: Int): ByteArray {
+        val esds = fullBox("esds", 0, 0, esDescriptor(asc, avgBitrate))
         return box("mp4a",
             ByteArray(6), u16(1), ByteArray(8), u16(channels), u16(16), u16(0), u16(0),
             u32(rate.toLong() shl 16), esds)
     }
 
-    /** ES_Descriptor + DecoderConfigDescriptor + DecoderSpecificInfo (AudioSpecificConfig) */
-    private fun esDescriptor(asc: Int): ByteArray {
-        val dsi = descriptor(0x05, u16(asc))
-        val dcd = descriptor(0x04, byteArrayOf(0x40, 0x15) + u24(0) + u32(0) + u32(0) + dsi)
-        val slcd = descriptor(0x06, byteArrayOf(2))
-        return descriptor(0x03, u16(1) + byteArrayOf(0) + dcd + slcd)
+    /** ES_Descriptor + DecoderConfigDescriptor + DecoderSpecificInfo (AudioSpecificConfig).
+     * Дескрипторы в 4-байтовом 0x80-форме (как у ffmpeg) — часть плееров/декодеров
+     * отвергает короткую форму или нулевые битрейты.
+     */
+    private fun esDescriptor(asc: Int, avgBitrate: Int): ByteArray {
+        val dsi = descriptor80(0x05, u16(asc))
+        val dcd = descriptor80(0x04, byteArrayOf(0x40, 0x15) + u24(0) + u32(avgBitrate) + u32(avgBitrate) + dsi)
+        val slcd = descriptor80(0x06, byteArrayOf(2))
+        return descriptor80(0x03, u16(1) + byteArrayOf(0) + dcd + slcd)
     }
 
-    private fun descriptor(tag: Int, payload: ByteArray): ByteArray {
-        require(payload.size < 0x80) { "descriptor too long" }
-        return byteArrayOf(tag.toByte(), payload.size.toByte()) + payload
-    }
+    private fun descriptor80(tag: Int, payload: ByteArray): ByteArray =
+        byteArrayOf(tag.toByte(), 0x80.toByte(), 0x80.toByte(), 0x80.toByte(), payload.size.toByte()) + payload
 
     private fun box(type: String, vararg parts: ByteArray): ByteArray {
         var size = 8
