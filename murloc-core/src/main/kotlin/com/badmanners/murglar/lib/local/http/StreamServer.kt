@@ -143,6 +143,9 @@ class StreamServer(
     private fun serveOriginal(session: IHTTPSession, id: String, head: ByteArray): Response {
         val opened = scanner.open(id) ?: return fixed(Response.Status.NOT_FOUND, "Not found: $id")
         val (stream, total) = opened
+        // head уже содержит первые байты — пропускаем их в новом потоке, иначе
+        // они продублируются в теле ответа (строгие парсеры вроде FLAC ломаются)
+        skipFully(stream, head.size.toLong())
         val mime = mimeFor(id)
         val source = SequenceInputStream(head, stream)
         val range = session.headers["range"]
