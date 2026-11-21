@@ -1,7 +1,6 @@
 package com.badmanners.murglar.lib.local.fs
 
 import com.badmanners.murglar.lib.core.log.LoggerMiddleware
-import com.badmanners.murglar.lib.core.model.track.source.Source
 import java.io.InputStream
 import java.net.URLEncoder
 
@@ -67,13 +66,49 @@ class SafScanner(
         val afd = resolver.javaClass
             .getMethod("openAssetFileDescriptor", androidNetUri(), String::class.java)
             .invoke(resolver, uri, "r") ?: return null
-        val length = afdClass.getMethod("getLength").invoke(afd) as Long
+        var length = afdClass.getMethod("getLength").invoke(afd) as Long
+        if (length < 0) {
+            // SD/FUSE иногда отдаёт UNKNOWN_LENGTH — тогда StreamServer отдаст
+            // chunked-ответ без Content-Length, ExoPlayer не построит seek-карту
+            // и хост запретит перемотку. Уточняем размер через DocumentsContract.
+            length = sizeFromDocuments(id)
+            if (length < 0) {
+                afdClass.getMethod("close").invoke(afd)
+                return null
+            }
+        }
         val stream = afdClass.getMethod("createInputStream").invoke(afd) as InputStream
-        stream to if (length >= 0) length else Source.UNKNOWN_SIZE
+        stream to length
     } catch (e: Throwable) {
         logger.e(TAG, "Can't open SAF file '$id'!", e)
         null
     }
+
+    /** Размер документа через DocumentsContract (фолбэк, когда getLength() = -1). */
+    private fun sizeFromDocuments(id: String): Long = runCatching {
+        val resolver = AndroidHost.contentResolver(logger) ?: return -1L
+        val (tree, documentId) = parseDocument(id) ?: return -1L
+        val docContract = Class.forName("android.provider.DocumentsContract")
+        val docUri = docContract
+            .getMethod("buildDocumentUriUsingTree", androidNetUri(), String::class.java)
+            .invoke(null, androidNetUri().getMethod("parse", String::class.java).invoke(null, tree), documentId)
+        resolver.javaClass.getMethod("query", androidNetUri(), Array<String>::class.java,
+            String::class.java, Array<String>::class.java, String::class.java)
+            .invoke(resolver, docUri, arrayOf("document_id", "_size"), null, null, null)
+            ?.let { cursor ->
+                try {
+                    val moved = cursor.javaClass.getMethod("moveToFirst").invoke(cursor) as Boolean
+                    val idx = cursor.javaClass.getMethod("getColumnIndex", String::class.java)
+                        .invoke(cursor, "_size") as Int
+                    if (moved && idx >= 0 && !(cursor.javaClass.getMethod("isNull", Int::class.java)
+                            .invoke(cursor, idx) as Boolean))
+                        cursor.javaClass.getMethod("getLong", Int::class.java).invoke(cursor, idx) as Long
+                    else -1L
+                } finally {
+                    runCatching { cursor.javaClass.getMethod("close").invoke(cursor) }
+                }
+            } ?: -1L
+    }.getOrDefault(-1L)
 
     private fun roots(): List<DirEntry> = musicFolders().mapNotNull { raw ->
         val value = raw.trim().trimEnd('/')
